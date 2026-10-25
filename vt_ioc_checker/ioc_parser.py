@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Reads IOC files and detects IOC type (IP, domain, URL, MD5, SHA1, SHA256)."""
+
+from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
