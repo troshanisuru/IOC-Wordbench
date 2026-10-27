@@ -180,11 +180,14 @@ def read_raw_values(path: str | Path) -> list[str]:
         raw_lines = p.read_text(encoding="utf-8-sig").splitlines()
     elif suffix == ".csv":
         raw_lines = []
-        with p.open("r", newline="", encoding="utf-8-sig") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if row:
-                    raw_lines.append(row[0])
+        try:
+            with p.open("r", newline="", encoding="utf-8-sig") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if row:
+                        raw_lines.append(row[0])
+        except csv.Error:
+            raise ValueError("The CSV file could not be parsed.") from None
     elif suffix == ".xlsx":
         raw_lines = []
         wb = openpyxl.load_workbook(p, read_only=True, data_only=True)

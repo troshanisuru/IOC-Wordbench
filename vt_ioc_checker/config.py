@@ -27,9 +27,15 @@ class Settings:
 def load_settings(env_path: str | Path | None = None) -> Settings:
     """Loads and validates configuration from environment variables and an env file."""
     env_file = Path(env_path) if env_path is not None else Path.cwd() / ".env"
-    file_values = (
-        dotenv_values(env_file, encoding="utf-8-sig") if env_file.is_file() else {}
-    )
+    if env_file.is_file():
+        try:
+            file_values = dotenv_values(env_file, encoding="utf-8-sig")
+        except (UnicodeDecodeError, OSError):
+            raise ConfigError(
+                "The .env file could not be read as UTF-8 text. Save it as UTF-8 (in Notepad: Save As, Encoding: UTF-8) and try again."
+            ) from None
+    else:
+        file_values = {}
 
     def _get(name: str) -> str:
         env_val = os.environ.get(name)

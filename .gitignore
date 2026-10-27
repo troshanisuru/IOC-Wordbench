@@ -25,3 +25,10 @@ data/output/*
 .idea/
 .vscode/
 .DS_Store
+
+.env.*
+!.env.example
+*.txt
+!requirements.txt
+!requirements-dev.txt
+

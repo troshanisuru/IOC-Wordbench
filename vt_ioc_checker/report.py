@@ -74,6 +74,14 @@ class ReportMeta:
     duplicates_removed: int = 0
 
 
+@dataclass(frozen=True)
+class ReportInfo:
+    """Summary metadata read back from an existing report file."""
+
+    vendor: str
+    input_name: str
+
+
 def _clean_text(text: str) -> str:
     """Removes Excel-incompatible control characters and truncates text."""
     return _CONTROL_CHAR_RE.sub("", text)[:MAX_CELL_CHARS]
@@ -217,8 +225,41 @@ def write_report(
         raise ReportWriteError(
             f"Cannot write the report ({type(exc).__name__}): {p}"
         ) from None
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
     return p
+
+
+def read_report_info(path: str | Path) -> ReportInfo:
+    """Reads the vendor and input file name from the Summary sheet of a report."""
+    p = Path(path)
+    if not p.is_file():
+        raise FileNotFoundError(f"Report file not found: {p}")
+
+    wb = load_workbook(p, read_only=True, data_only=True)
+    try:
+        if (
+            RESULTS_SHEET not in wb.sheetnames
+            or SUMMARY_SHEET not in wb.sheetnames
+        ):
+            raise ValueError("File is not a vt-ioc-checker report.")
+        ws = wb[SUMMARY_SHEET]
+        vals = [
+            "" if not row or row[0] is None else str(row[0])
+            for row in ws.iter_rows(
+                min_row=1, max_row=2, min_col=2, max_col=2, values_only=True
+            )
+        ]
+        while len(vals) < 2:
+            vals.append("")
+        return ReportInfo(vendor=vals[0], input_name=vals[1])
+    finally:
+        wb.close()
 
 
 def read_report_rows(path: str | Path) -> list[ReportRow]:

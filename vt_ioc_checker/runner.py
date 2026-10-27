@@ -6,6 +6,7 @@ import collections
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import time
 from typing import Any, Callable, Optional
 
 from vt_ioc_checker.ioc_parser import IocType, load_iocs
@@ -21,6 +22,7 @@ from vt_ioc_checker.report import (
     ReportMeta,
     ReportRow,
     ReportWriteError,
+    read_report_info,
     read_report_rows,
     write_report,
 )
@@ -32,6 +34,8 @@ from vt_ioc_checker.vt_client import (
 )
 
 DEFAULT_SAVE_EVERY = 25
+FINAL_SAVE_ATTEMPTS = 6
+FINAL_SAVE_WAIT_SECONDS = 10.0
 GENERIC_STOP_NOTE = "Run stopped before this IOC was checked"
 INVALID_NOTE = "Not a valid IOC; not looked up"
 NOT_FOUND_NOTE = "Not found in VirusTotal"
@@ -72,6 +76,9 @@ def run_check(
     save_every: int = DEFAULT_SAVE_EVERY,
     now: Optional[Callable[[], datetime]] = None,
     log: Optional[Callable[[str], None]] = None,
+    sleep: Optional[Callable[[float], None]] = None,
+    final_save_attempts: Optional[int] = None,
+    final_save_wait: Optional[float] = None,
 ) -> RunSummary:
     """Runs the IOC verification pipeline against VirusTotal."""
     if not vendor.strip():
@@ -80,12 +87,23 @@ def run_check(
         raise ValueError("max_lookups must be at least 1.")
     if save_every < 1:
         raise ValueError("save_every must be at least 1.")
+    if final_save_attempts is not None and final_save_attempts < 1:
+        raise ValueError("final_save_attempts must be at least 1.")
 
     loaded = load_iocs(input_path)
 
     out = Path(output_path)
     previous: dict[str, ReportRow] = {}
     if resume and out.exists():
+        info = read_report_info(out)
+        if info.vendor.strip().casefold() != vendor.strip().casefold():
+            raise ValueError(
+                f"The existing report was made for vendor '{info.vendor}', not '{vendor.strip()}'. Use a different -o file, or --no-resume --overwrite to replace it."
+            )
+        if info.input_name != Path(input_path).name:
+            raise ValueError(
+                f"The existing report was made from input file '{info.input_name}', not '{Path(input_path).name}'. Use a different -o file, or --no-resume --overwrite to replace it."
+            )
         for row in read_report_rows(out):
             if row.vendor_status in REUSABLE_STATUSES:
                 previous[row.ioc] = row
@@ -155,83 +173,139 @@ def run_check(
             duplicates_removed=loaded.duplicates_removed,
         )
 
-    for position, i in enumerate(pending, start=1):
-        entry = entries[i]
-        if max_lookups is not None and looked_up >= max_lookups:
-            stop_kind = "limit"
-            stop_reason = f"Reached the lookup limit for this run ({max_lookups})."
-            stop_index = i
-            _log(f"STOPPED: {stop_reason}")
-            break
-
-        looked_up += 1
-        try:
-            result = client.lookup(entry.ioc_type, entry.value)
-        except VTRequestError as exc:
-            results[i] = ReportRow(
-                ioc=entry.value,
-                ioc_type=entry.ioc_type.value,
-                vt_score="",
-                vt_malicious=None,
-                vendor_status=STATUS_ERROR,
-                checked_at=_time_text(),
-                note=str(exc),
-            )
-            _log(f"[{position}/{len(pending)}] {entry.value[:60]} -> ERROR: {exc}")
-        except (VTAuthError, VTQuotaExceededError) as exc:
-            stop_kind = "auth" if isinstance(exc, VTAuthError) else "quota"
-            stop_reason = str(exc)
-            stop_index = i
-            _log(f"STOPPED: {stop_reason}")
-            break
-        except KeyboardInterrupt:
-            stop_kind = "interrupted"
-            stop_reason = INTERRUPTED_REASON
-            stop_index = i
-            _log(f"STOPPED: {stop_reason}")
-            break
-        except Exception as exc:
-            stop_kind = "error"
-            stop_reason = f"Unexpected error ({type(exc).__name__})."
-            stop_index = i
-            _log(f"STOPPED: {stop_reason}")
-            break
-        else:
-            verdict = build_verdict(result, vendor)
-            if verdict.vendor_status.value == "Unknown":
-                note = NOT_FOUND_NOTE
-            elif verdict.vendor_status.value == "No result":
-                cat_part = (
-                    f" ({verdict.vendor_category})"
-                    if verdict.vendor_category
-                    else ""
-                )
-                note = f"{vendor.strip()} gave no verdict{cat_part}"
-            else:
-                note = ""
-            results[i] = ReportRow(
-                ioc=entry.value,
-                ioc_type=entry.ioc_type.value,
-                vt_score=verdict.score,
-                vt_malicious=verdict.malicious_count,
-                vendor_status=verdict.vendor_status.value,
-                vt_last_analysis=verdict.last_analysis,
-                checked_at=_time_text(),
-                note=note,
-            )
-            _log(
-                f"[{position}/{len(pending)}] {entry.value[:60]} -> score {verdict.score}, {vendor.strip()} {verdict.vendor_status.value}"
-            )
-
-        if position < len(pending) and looked_up % save_every == 0:
+    def _save_final() -> Path:
+        """Saves the final report with retries and an unsaved-file fallback."""
+        attempts = (
+            final_save_attempts
+            if final_save_attempts is not None
+            else FINAL_SAVE_ATTEMPTS
+        )
+        wait = (
+            final_save_wait
+            if final_save_wait is not None
+            else FINAL_SAVE_WAIT_SECONDS
+        )
+        pause = sleep if sleep is not None else time.sleep
+        for attempt in range(1, attempts + 1):
             try:
                 write_report(out, _rows(), _meta())
+                return out
             except ReportWriteError:
+                if attempt == attempts:
+                    break
                 _log(
-                    "Could not save progress (close the report if it is open in Excel); will retry."
+                    f"Could not save the report (is it open in Excel?). Close it. Retrying in {wait:.0f} seconds (attempt {attempt} of {attempts - 1})..."
+                )
+                try:
+                    pause(wait)
+                except KeyboardInterrupt:
+                    break
+        fallback = out.with_name(
+            f"{out.stem}.unsaved-{get_now().strftime('%Y%m%d-%H%M%S')}{out.suffix}"
+        )
+        write_report(fallback, _rows(), _meta())
+        _log(
+            f"The report file {out} could not be written. Results were saved to {fallback} instead. Close the report, replace it with that file, and run the same command again."
+        )
+        return fallback
+
+    current: Optional[int] = None
+    try:
+        for position, i in enumerate(pending, start=1):
+            current = i
+            entry = entries[i]
+            if max_lookups is not None and looked_up >= max_lookups:
+                stop_kind = "limit"
+                stop_reason = (
+                    f"Reached the lookup limit for this run ({max_lookups})."
+                )
+                stop_index = i
+                _log(f"STOPPED: {stop_reason}")
+                break
+
+            looked_up += 1
+            try:
+                result = client.lookup(entry.ioc_type, entry.value)
+            except VTRequestError as exc:
+                results[i] = ReportRow(
+                    ioc=entry.value,
+                    ioc_type=entry.ioc_type.value,
+                    vt_score="",
+                    vt_malicious=None,
+                    vendor_status=STATUS_ERROR,
+                    checked_at=_time_text(),
+                    note=str(exc),
+                )
+                _log(
+                    f"[{position}/{len(pending)}] {entry.value[:60]} -> ERROR: {exc}"
+                )
+            except (VTAuthError, VTQuotaExceededError) as exc:
+                stop_kind = "auth" if isinstance(exc, VTAuthError) else "quota"
+                stop_reason = str(exc)
+                stop_index = i
+                _log(f"STOPPED: {stop_reason}")
+                break
+            except KeyboardInterrupt:
+                stop_kind = "interrupted"
+                stop_reason = INTERRUPTED_REASON
+                stop_index = i
+                _log(f"STOPPED: {stop_reason}")
+                break
+            except Exception as exc:
+                stop_kind = "error"
+                stop_reason = f"Unexpected error ({type(exc).__name__})."
+                stop_index = i
+                _log(f"STOPPED: {stop_reason}")
+                break
+            else:
+                verdict = build_verdict(result, vendor)
+                if verdict.vendor_status.value == "Unknown":
+                    note = NOT_FOUND_NOTE
+                elif verdict.vendor_status.value == "No result":
+                    cat_part = (
+                        f" ({verdict.vendor_category})"
+                        if verdict.vendor_category
+                        else ""
+                    )
+                    note = f"{vendor.strip()} gave no verdict{cat_part}"
+                elif (
+                    verdict.vendor_status.value == "Detected"
+                    and verdict.vendor_category == "suspicious"
+                ):
+                    note = (
+                        f"{vendor.strip()} verdict is suspicious (not malicious)"
+                    )
+                else:
+                    note = ""
+                results[i] = ReportRow(
+                    ioc=entry.value,
+                    ioc_type=entry.ioc_type.value,
+                    vt_score=verdict.score,
+                    vt_malicious=verdict.malicious_count,
+                    vendor_status=verdict.vendor_status.value,
+                    vt_last_analysis=verdict.last_analysis,
+                    checked_at=_time_text(),
+                    note=note,
+                )
+                _log(
+                    f"[{position}/{len(pending)}] {entry.value[:60]} -> score {verdict.score}, {vendor.strip()} {verdict.vendor_status.value}"
                 )
 
-    write_report(out, _rows(), _meta())
+            if position < len(pending) and looked_up % save_every == 0:
+                try:
+                    write_report(out, _rows(), _meta())
+                except ReportWriteError:
+                    _log(
+                        "Could not save progress (close the report if it is open in Excel); will retry."
+                    )
+    except KeyboardInterrupt:
+        if stop_kind == "":
+            stop_kind = "interrupted"
+            stop_reason = INTERRUPTED_REASON
+            stop_index = current
+            _log(f"STOPPED: {stop_reason}")
+
+    written_path = _save_final()
 
     rows = _rows()
     counts = {
@@ -247,5 +321,5 @@ def run_check(
         counts=counts,
         stop_kind=stop_kind,
         stop_reason=stop_reason,
-        report_path=out,
+        report_path=written_path,
     )

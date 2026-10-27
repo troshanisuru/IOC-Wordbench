@@ -178,62 +178,75 @@ def main(
         return EXIT_FILE
 
     try:
-        settings = load_settings(args.env_file)
-    except ConfigError as exc:
-        fail(str(exc))
-        return EXIT_CONFIG
+        try:
+            settings = load_settings(args.env_file)
+        except ConfigError as exc:
+            fail(str(exc))
+            return EXIT_CONFIG
 
-    client = (client_factory or default_client_factory)(settings)
+        client = (client_factory or default_client_factory)(settings)
 
-    say(f"Vendor: {args.vendor} | Input: {input_path} | Output: {output_path}")
+        say(f"Vendor: {args.vendor} | Input: {input_path} | Output: {output_path}")
 
-    try:
-        summary = run_check(
-            input_path,
-            output_path,
-            client,
-            args.vendor,
-            resume=not args.no_resume,
-            max_lookups=args.max_lookups,
-            save_every=args.save_every,
-            log=say,
+        try:
+            summary = run_check(
+                input_path,
+                output_path,
+                client,
+                args.vendor,
+                resume=not args.no_resume,
+                max_lookups=args.max_lookups,
+                save_every=args.save_every,
+                log=say,
+            )
+        except KeyboardInterrupt:
+            fail("Interrupted.")
+            return EXIT_INTERRUPTED
+        except UnicodeDecodeError:
+            fail(
+                "The input file is not valid UTF-8 text. "
+                "Save it as UTF-8 and try again."
+            )
+            return EXIT_FILE
+        except zipfile.BadZipFile:
+            fail("An .xlsx file could not be read (is it a valid Excel file?).")
+            return EXIT_FILE
+        except (OSError, ValueError, ReportWriteError) as exc:
+            fail(str(exc))
+            return EXIT_FILE
+
+        say(
+            f"Unique IOCs: {summary.total_unique} "
+            f"(duplicates removed: {summary.duplicates_removed})"
         )
-    except KeyboardInterrupt:
-        fail("Interrupted.")
-        return EXIT_INTERRUPTED
-    except UnicodeDecodeError:
-        fail(
-            "The input file is not valid UTF-8 text. "
-            "Save it as UTF-8 and try again."
+        say(
+            f"Looked up: {summary.looked_up} | "
+            f"Reused from previous report: {summary.reused}"
         )
-        return EXIT_FILE
-    except zipfile.BadZipFile:
-        fail("An .xlsx file could not be read (is it a valid Excel file?).")
-        return EXIT_FILE
-    except (OSError, ValueError, ReportWriteError) as exc:
-        fail(str(exc))
-        return EXIT_FILE
+        for label in STATUS_ORDER:
+            say(f"  {label}: {summary.counts[label]}")
+        say(f"Report: {summary.report_path}")
 
-    say(
-        f"Unique IOCs: {summary.total_unique} "
-        f"(duplicates removed: {summary.duplicates_removed})"
-    )
-    say(
-        f"Looked up: {summary.looked_up} | "
-        f"Reused from previous report: {summary.reused}"
-    )
-    for label in STATUS_ORDER:
-        say(f"  {label}: {summary.counts[label]}")
-    say(f"Report: {summary.report_path}")
+        if summary.report_path != output_path:
+            fail(
+                f"The report could not be written to {output_path}. "
+                f"Results were saved to {summary.report_path} instead."
+            )
 
-    if summary.stop_kind != "":
-        if summary.stop_kind in ("auth", "quota", "error"):
-            fail(f"Stopped early ({summary.stop_kind}): {summary.stop_reason}")
-        elif summary.stop_kind in ("limit", "interrupted"):
-            say(f"Stopped early ({summary.stop_kind}): {summary.stop_reason}")
-        say("Finished IOCs are saved. Run the same command again to continue.")
+        if summary.stop_kind != "":
+            if summary.stop_kind in ("auth", "quota", "error"):
+                fail(f"Stopped early ({summary.stop_kind}): {summary.stop_reason}")
+            elif summary.stop_kind in ("limit", "interrupted"):
+                say(f"Stopped early ({summary.stop_kind}): {summary.stop_reason}")
+            say("Finished IOCs are saved. Run the same command again to continue.")
 
-    return STOP_EXIT_CODES[summary.stop_kind]
+        exit_code = STOP_EXIT_CODES[summary.stop_kind]
+        if summary.report_path != output_path and exit_code == EXIT_OK:
+            return EXIT_FILE
+        return exit_code
+    except Exception as exc:
+        fail(f"Unexpected error ({type(exc).__name__}).")
+        return EXIT_ERROR
 
 
 if __name__ == "__main__":
