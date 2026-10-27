@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass, field
+import math
 import time
 from typing import Callable, Optional
 
@@ -98,6 +99,8 @@ def _retry_after_seconds(resp: requests.Response) -> float:
     value = resp.headers.get("Retry-After")
     try:
         sec = float(value)  # type: ignore[arg-type]
+        if not math.isfinite(sec):
+            return DEFAULT_RATE_LIMIT_WAIT_SECONDS
         return max(1.0, min(sec, MAX_RETRY_AFTER_SECONDS))
     except (TypeError, ValueError):
         return DEFAULT_RATE_LIMIT_WAIT_SECONDS

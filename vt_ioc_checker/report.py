@@ -94,6 +94,8 @@ def _set_text(cell, text: str) -> None:
         return
     cell.value = text
     cell.data_type = "s"
+    if text.startswith(("=", "+", "-", "@", "\t", "\r")):
+        cell.quotePrefix = True
 
 
 def _headers(vendor: str) -> list[str]:

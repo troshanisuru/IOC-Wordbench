@@ -29,6 +29,8 @@ HEADER_NAMES = {
     "urls",
 }
 
+MAX_IOC_LENGTH = 8000
+
 _MD5_REGEX = re.compile(r"^[0-9a-fA-F]{32}$")
 _SHA1_REGEX = re.compile(r"^[0-9a-fA-F]{40}$")
 _SHA256_REGEX = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -79,7 +81,12 @@ def refang(text: str) -> str:
     text = re.sub(re.escape("[:]"), ":", text, flags=re.IGNORECASE)
     for token in ("[.]", "(.)", "{.}", "[dot]", "(dot)"):
         text = re.sub(re.escape(token), ".", text, flags=re.IGNORECASE)
-    text = re.sub(r"^hxxp", "http", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"^hxxp(s?)",
+        lambda m: "http" + m.group(1).lower(),
+        text,
+        flags=re.IGNORECASE,
+    )
     return text
 
 
@@ -101,7 +108,7 @@ def _is_valid_ipv4(candidate: str) -> bool:
 
 def detect_ioc_type(value: str) -> IocType:
     """Detects the IOC type of a cleaned indicator value."""
-    if not value or any(c.isspace() for c in value):
+    if not value or len(value) > MAX_IOC_LENGTH or any(c.isspace() for c in value):
         return IocType.INVALID
 
     if _MD5_REGEX.match(value):
@@ -120,9 +127,19 @@ def detect_ioc_type(value: str) -> IocType:
     if value.lower().startswith(("http://", "https://", "ftp://")):
         try:
             parts = urllib.parse.urlsplit(value)
-            if parts.hostname:
-                return IocType.URL
-            return IocType.INVALID
+            host = parts.hostname
+            if not host:
+                return IocType.INVALID
+            port = parts.port
+            if port == 0:
+                return IocType.INVALID
+            if (
+                ".." in host
+                or host.startswith((".", "-"))
+                or host.endswith((".", "-"))
+            ):
+                return IocType.INVALID
+            return IocType.URL
         except ValueError:
             return IocType.INVALID
 
@@ -134,7 +151,12 @@ def detect_ioc_type(value: str) -> IocType:
             pass
 
         host_part = value.split("/", 1)[0]
-        host_part = re.sub(r":\d{1,5}$", "", host_part)
+        port_match = re.search(r":(\d{1,5})$", host_part)
+        if port_match:
+            port_num = int(port_match.group(1))
+            if port_num < 1 or port_num > 65535:
+                return IocType.INVALID
+            host_part = host_part[: port_match.start()]
         if _is_valid_domain(host_part) or _is_valid_ipv4(host_part):
             return IocType.URL
         return IocType.INVALID
@@ -209,8 +231,12 @@ def read_raw_values(path: str | Path) -> list[str]:
             continue
         processed.append(s)
 
-    if processed and processed[0].lower() in HEADER_NAMES:
-        processed = processed[1:]
+    if processed:
+        first = processed[0]
+        if len(first) >= 2 and first[0] in ('"', "'") and first[0] == first[-1]:
+            first = first[1:-1].strip()
+        if first.lower() in HEADER_NAMES:
+            processed = processed[1:]
 
     return processed
 
