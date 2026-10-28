@@ -87,7 +87,6 @@ def test_basic_run(tmp_path: Path) -> None:
     assert summary.counts == {
         "Detected": 1,
         "Clean": 1,
-        "No result": 0,
         "Unknown": 1,
         "Invalid": 1,
         "Error": 0,
@@ -100,50 +99,30 @@ def test_basic_run(tmp_path: Path) -> None:
     ]
     assert read_report_rows(out) == [
         ReportRow(
-            "evil.com",
-            "Domain",
-            "5/65",
-            5,
-            "Detected",
-            "2023-11-14 22:13:20 UTC",
-            CHECKED,
-            "",
+            ioc="evil.com",
+            vendor_status="Detected",
+            vt_score="5/65",
         ),
         ReportRow(
-            "8.8.8.8",
-            "IP",
-            "40/70",
-            40,
-            "Clean",
-            "2023-11-14 22:13:20 UTC",
-            CHECKED,
-            "",
+            ioc="8.8.8.8",
+            vendor_status="Clean",
+            vt_score="40/70",
         ),
         ReportRow(
-            "not an ioc",
-            "Invalid",
-            "",
-            None,
-            "Invalid",
-            "",
-            "",
-            "Not a valid IOC; not looked up",
+            ioc="not an ioc",
+            vendor_status="Invalid",
+            vt_score="",
         ),
         ReportRow(
-            MD5,
-            "MD5",
-            "Unknown",
-            None,
-            "Unknown",
-            "",
-            CHECKED,
-            "Not found in VirusTotal",
+            ioc=MD5,
+            vendor_status="Unknown",
+            vt_score="Unknown",
         ),
     ]
 
 
 @pytest.mark.parametrize(
-    "result,expected_note",
+    "result,expected_score",
     [
         (
             VTResult(
@@ -152,23 +131,23 @@ def test_basic_run(tmp_path: Path) -> None:
                 {"Microsoft": "malicious"},
                 None,
             ),
-            "Sophos gave no verdict",
+            "2/62",
         ),
         (
             VTResult(True, {"undetected": 10}, {"Sophos": "timeout"}, None),
-            "Sophos gave no verdict (timeout)",
+            "0/10",
         ),
     ],
 )
 def test_no_result_note(
-    tmp_path: Path, result: VTResult, expected_note: str
+    tmp_path: Path, result: VTResult, expected_score: str
 ) -> None:
     client = FakeClient({"evil.com": result})
     summary, out = run(tmp_path, client, lines=["evil.com"])
     rows = read_report_rows(out)
     assert len(rows) == 1
-    assert rows[0].vendor_status == "No result"
-    assert rows[0].note == expected_note
+    assert rows[0].vendor_status == "Unknown"
+    assert rows[0].vt_score == expected_score
 
 
 def test_other_vendor(tmp_path: Path) -> None:
@@ -183,7 +162,7 @@ def test_other_vendor(tmp_path: Path) -> None:
     rows = read_report_rows(out)
     assert rows[0].vendor_status == "Detected"
     wb = openpyxl.load_workbook(out)
-    assert wb["Results"]["E1"].value == "Microsoft Status"
+    assert wb["Results"]["B1"].value == "Microsoft Status"
     wb.close()
 
 
@@ -196,8 +175,6 @@ def test_request_error_not_fatal(tmp_path: Path) -> None:
     assert rows[0].vendor_status == "Error"
     assert rows[0].vt_score == ""
     assert rows[0].vt_malicious is None
-    assert rows[0].checked_at == CHECKED
-    assert rows[0].note == "request failed"
     assert rows[1].vendor_status == "Clean"
     assert rows[2].vendor_status == "Unknown"
     assert summary.stop_kind == ""
@@ -218,9 +195,6 @@ def test_auth_error_stops_run(tmp_path: Path) -> None:
         "Not checked",
         "Not checked",
     ]
-    assert rows[0].note == "auth failed"
-    assert rows[1].note == "Run stopped before this IOC was checked"
-    assert rows[2].note == "Run stopped before this IOC was checked"
     assert out.exists()
 
 
@@ -237,8 +211,6 @@ def test_quota_error_stops_run(tmp_path: Path) -> None:
         "Not checked",
         "Not checked",
     ]
-    assert rows[1].note == "quota hit"
-    assert rows[2].note == "Run stopped before this IOC was checked"
 
 
 def test_max_lookups(tmp_path: Path) -> None:
@@ -253,7 +225,6 @@ def test_max_lookups(tmp_path: Path) -> None:
         "Clean",
         "Not checked",
     ]
-    assert rows[2].note == "Reached the lookup limit for this run (2)."
 
 
 def test_interrupt_saves_progress(tmp_path: Path) -> None:
@@ -268,8 +239,6 @@ def test_interrupt_saves_progress(tmp_path: Path) -> None:
         "Not checked",
         "Not checked",
     ]
-    assert rows[1].note == "Interrupted by user (Ctrl+C)."
-    assert rows[2].note == "Interrupted by user (Ctrl+C)."
 
 
 def test_unexpected_error_saves_progress(tmp_path: Path) -> None:
@@ -284,8 +253,6 @@ def test_unexpected_error_saves_progress(tmp_path: Path) -> None:
         "Not checked",
         "Not checked",
     ]
-    assert rows[1].note == "Unexpected error (RuntimeError)."
-    assert rows[2].note == "Run stopped before this IOC was checked"
 
 
 def test_resume_reuses_final_rows(tmp_path: Path) -> None:
@@ -301,10 +268,9 @@ def test_resume_reuses_final_rows(tmp_path: Path) -> None:
     assert summary2.looked_up == 2
     assert summary2.stop_kind == ""
     rows = read_report_rows(out)
-    assert rows[0].checked_at == CHECKED
-    assert rows[1].checked_at == CHECKED2
-    assert rows[2].checked_at == CHECKED2
     assert rows[0].vendor_status == "Detected"
+    assert rows[1].vendor_status == "Clean"
+    assert rows[2].vendor_status == "Unknown"
 
 
 def test_resume_rechecks_error_and_not_checked(tmp_path: Path) -> None:
@@ -493,4 +459,5 @@ def test_refanged_value_is_looked_up(tmp_path: Path) -> None:
     assert client.calls == [(IocType.URL, "http://evil.com/a")]
     rows = read_report_rows(out)
     assert rows[0].ioc == "http://evil.com/a"
-    assert rows[0].ioc_type == "URL"
+    assert rows[0].vendor_status == "Unknown"
+    assert rows[0].vt_score == "Unknown"

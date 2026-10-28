@@ -18,6 +18,8 @@ DEFAULT_MAX_RETRIES = 3
 DEFAULT_RATE_LIMIT_WAIT_SECONDS = 60.0
 MAX_RETRY_AFTER_SECONDS = 120.0
 BACKOFF_BASE_SECONDS = 2.0
+DEFAULT_MAX_POLL_ATTEMPTS = 4
+DEFAULT_POLL_WAIT_SECONDS = 5.0
 
 
 class VTError(Exception):
@@ -55,6 +57,8 @@ def build_lookup_url(ioc_type: IocType, value: str) -> str:
     if ioc_type == IocType.DOMAIN:
         return f"{VT_API_BASE}/domains/{value}"
     if ioc_type == IocType.URL:
+        if not value.lower().startswith(("http://", "https://", "ftp://")):
+            value = "http://" + value
         url_id = (
             base64.urlsafe_b64encode(value.encode("utf-8"))
             .decode("ascii")
@@ -62,6 +66,16 @@ def build_lookup_url(ioc_type: IocType, value: str) -> str:
         )
         return f"{VT_API_BASE}/urls/{url_id}"
     raise ValueError("Cannot look up an invalid IOC.")
+
+
+def build_reanalyze_url(ioc_type: IocType, value: str) -> str:
+    """Constructs the VirusTotal API v3 POST re-analysis endpoint URL."""
+    return f"{build_lookup_url(ioc_type, value)}/analyse"
+
+
+def build_analysis_url(analysis_id: str) -> str:
+    """Constructs the VirusTotal API v3 analysis status endpoint URL."""
+    return f"{VT_API_BASE}/analyses/{analysis_id}"
 
 
 class RateLimiter:
@@ -149,6 +163,62 @@ def _parse_200(resp: requests.Response) -> VTResult:
     )
 
 
+def _extract_analysis_id(resp: requests.Response) -> Optional[str]:
+    """Extracts the analysis job identifier from a POST .../analyse response."""
+    try:
+        analysis_id = resp.json()["data"]["id"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if isinstance(analysis_id, str) and analysis_id.strip():
+        return analysis_id.strip()
+    return None
+
+
+def _parse_analysis_200(resp: requests.Response) -> Optional[VTResult]:
+    """Parses a GET /analyses/{id} response if the analysis is completed."""
+    try:
+        attributes = resp.json()["data"]["attributes"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(attributes, dict):
+        return None
+    if attributes.get("status") != "completed":
+        return None
+
+    raw_stats = attributes.get("stats")
+    stats: dict[str, int] = {}
+    if isinstance(raw_stats, dict):
+        for k, v in raw_stats.items():
+            try:
+                stats[str(k)] = int(v)
+            except (ValueError, TypeError):
+                continue
+
+    raw_results = attributes.get("results")
+    engine_results: dict[str, str] = {}
+    if isinstance(raw_results, dict):
+        for engine, info in raw_results.items():
+            if isinstance(info, dict):
+                engine_results[str(engine)] = str(info.get("category", ""))
+
+    if not stats and not engine_results:
+        return None
+
+    raw_date = attributes.get("date")
+    last_analysis_date: Optional[int] = (
+        raw_date
+        if isinstance(raw_date, int) and not isinstance(raw_date, bool)
+        else None
+    )
+
+    return VTResult(
+        found=True,
+        stats=stats,
+        engine_results=engine_results,
+        last_analysis_date=last_analysis_date,
+    )
+
+
 class VTClient:
     """Client for VirusTotal API v3 with rate limiting and exponential retries."""
 
@@ -160,6 +230,9 @@ class VTClient:
         sleep: Callable[[float], None] = time.sleep,
         max_retries: int = DEFAULT_MAX_RETRIES,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        reanalyze: bool = True,
+        max_poll_attempts: int = DEFAULT_MAX_POLL_ATTEMPTS,
+        poll_wait: float = DEFAULT_POLL_WAIT_SECONDS,
     ) -> None:
         if not api_key or not api_key.strip():
             raise ValueError("api_key must not be empty.")
@@ -168,28 +241,35 @@ class VTClient:
         self._sleep = sleep
         self._max_retries = max_retries
         self._timeout = timeout
-        self._headers = {"x-apikey": api_key, "accept": "application/json"}
+        self._reanalyze = reanalyze
+        self._max_poll_attempts = max_poll_attempts
+        self._poll_wait = poll_wait
+        self._headers = {"x-apikey": api_key.strip(), "accept": "application/json"}
 
-    def lookup(self, ioc_type: IocType, value: str) -> VTResult:
-        """Looks up an indicator on VirusTotal, handling retries and rate limits."""
-        url = build_lookup_url(ioc_type, value)
+    def _send_with_retries(
+        self, method: str, url: str
+    ) -> requests.Response:
+        """Sends an HTTP GET or POST request with rate limiting and retries."""
         attempt = 0
         while True:
             self._limiter.wait()
             try:
-                resp = self._session.get(
-                    url, headers=self._headers, timeout=self._timeout
-                )
+                if method == "POST":
+                    resp = self._session.post(
+                        url, headers=self._headers, timeout=self._timeout
+                    )
+                else:
+                    resp = self._session.get(
+                        url, headers=self._headers, timeout=self._timeout
+                    )
             except requests.exceptions.RequestException as exc:
                 failure = f"network error ({type(exc).__name__})"
                 wait_seconds = BACKOFF_BASE_SECONDS * (2 ** attempt)
                 rate_limited = False
             else:
                 status = resp.status_code
-                if status == 200:
-                    return _parse_200(resp)
-                elif status == 404:
-                    return VTResult(found=False)
+                if status in (200, 404):
+                    return resp
                 elif status in (401, 403):
                     raise VTAuthError(
                         f"VirusTotal rejected the API key (HTTP {status}). Check VT_API_KEY in .env."
@@ -223,3 +303,38 @@ class VTClient:
                 )
             self._sleep(wait_seconds)
             attempt += 1
+
+    def lookup(self, ioc_type: IocType, value: str) -> VTResult:
+        """Triggers reanalysis (when enabled) and retrieves the VirusTotal verdict."""
+        url = build_lookup_url(ioc_type, value)
+        if self._reanalyze and hasattr(self._session, "post"):
+            reanalyze_url = build_reanalyze_url(ioc_type, value)
+            try:
+                post_resp = self._send_with_retries("POST", reanalyze_url)
+            except VTRequestError:
+                post_resp = None
+
+            if post_resp is not None:
+                if post_resp.status_code == 404:
+                    return VTResult(found=False)
+                analysis_id = _extract_analysis_id(post_resp)
+                if analysis_id is not None:
+                    analysis_url = build_analysis_url(analysis_id)
+                    for _ in range(self._max_poll_attempts):
+                        if self._poll_wait > 0:
+                            self._sleep(self._poll_wait)
+                        try:
+                            poll_resp = self._send_with_retries(
+                                "GET", analysis_url
+                            )
+                        except VTRequestError:
+                            break
+                        if poll_resp.status_code == 200:
+                            parsed = _parse_analysis_200(poll_resp)
+                            if parsed is not None:
+                                return parsed
+
+        resp = self._send_with_retries("GET", url)
+        if resp.status_code == 404:
+            return VTResult(found=False)
+        return _parse_200(resp)

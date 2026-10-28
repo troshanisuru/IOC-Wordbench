@@ -185,6 +185,12 @@ def make_entry(raw: str) -> IocEntry:
             canonical = canonical[:-1]
     elif ioc_type == IocType.IP:
         canonical = str(ipaddress.ip_address(cleaned))
+    elif ioc_type == IocType.URL:
+        if cleaned.lower().startswith(("http://", "https://", "ftp://")):
+            scheme_end = cleaned.find("://")
+            canonical = cleaned[:scheme_end].lower() + cleaned[scheme_end:]
+        else:
+            canonical = "http://" + cleaned
     else:
         canonical = cleaned
 
@@ -212,7 +218,12 @@ def read_raw_values(path: str | Path) -> list[str]:
             raise ValueError("The CSV file could not be parsed.") from None
     elif suffix == ".xlsx":
         raw_lines = []
-        wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
+        try:
+            wb = openpyxl.load_workbook(p, read_only=True, data_only=True)
+        except KeyError:
+            raise ValueError(
+                "An .xlsx file could not be read (is it a valid Excel file?)."
+            ) from None
         try:
             sheet = wb.active
             if sheet is not None:

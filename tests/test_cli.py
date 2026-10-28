@@ -127,7 +127,7 @@ def test_vendor_option(tmp_path: Path) -> None:
     report = tmp_path / "data" / "output" / "list_microsoft_report.xlsx"
     assert report.exists()
     wb = openpyxl.load_workbook(report)
-    assert wb["Results"]["E1"].value == "Microsoft Status"
+    assert wb["Results"]["B1"].value == "Microsoft Status"
     wb.close()
 
 
@@ -390,3 +390,22 @@ def test_default_client_factory() -> None:
         Settings(api_key="k-123", requests_per_minute=4)
     )
     assert isinstance(client, VTClient)
+
+
+def test_missing_input_without_gui() -> None:
+    """Invoking without input and without --gui returns EXIT_CONFIG."""
+    out = io.StringIO()
+    err = io.StringIO()
+    code = main([], stdout=out, stderr=err)
+    assert code == 2
+    assert "the following arguments are required: input" in err.getvalue()
+
+
+def test_cli_gui_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invoking with --gui delegates to launch_gui."""
+    launched = []
+    monkeypatch.setattr("vt_ioc_checker.gui.launch_gui", lambda: launched.append(True))
+    code = main(["--gui"])
+    assert code == 0
+    assert launched == [True]
+

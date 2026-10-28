@@ -22,7 +22,7 @@ class VendorStatus(str, Enum):
     DETECTED = "Detected"
     CLEAN = "Clean"
     NOT_IN_VT = "Unknown"
-    NO_RESULT = "No result"
+    NO_RESULT = "Unknown"
 
 
 @dataclass(frozen=True)

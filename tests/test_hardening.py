@@ -165,7 +165,7 @@ def test_no_resume_allows_other_vendor(tmp_path: Path) -> None:
     _, out = run(tmp_path, FakeClient(), vendor="Microsoft", resume=False)
     wb = openpyxl.load_workbook(out)
     try:
-        assert wb["Results"]["E1"].value == "Microsoft Status"
+        assert wb["Results"]["B1"].value == "Microsoft Status"
     finally:
         wb.close()
 
@@ -432,7 +432,7 @@ def test_cli_catch_all(
 
 
 def test_suspicious_note(tmp_path: Path) -> None:
-    """Add an explanatory note when the vendor verdict category is suspicious."""
+    """Report Detected status and 0/71 score when vendor verdict category is suspicious."""
     res = VTResult(
         True, {"suspicious": 1, "undetected": 70}, {"Sophos": "suspicious"}, None
     )
@@ -441,7 +441,6 @@ def test_suspicious_note(tmp_path: Path) -> None:
     assert len(rows) == 1
     assert rows[0].vendor_status == "Detected"
     assert rows[0].vt_score == "0/71"
-    assert rows[0].note == "Sophos verdict is suspicious (not malicious)"
 
 
 @pytest.mark.parametrize(

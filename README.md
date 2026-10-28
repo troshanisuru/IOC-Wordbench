@@ -28,16 +28,30 @@ pip install -r requirements-dev.txt
 ```
 
 ### Configuration
-Copy `.env.example` to `.env` and set your VirusTotal API key (never commit `.env`):
+Copy `.env.example` to `.env` and set your VirusTotal and/or AbuseIPDB API keys (never commit `.env`):
 
 ```ini
 VT_API_KEY=your_virustotal_api_key_here
 VT_REQUESTS_PER_MINUTE=4
+ABUSEIPDB_API_KEY=your_abuseipdb_api_key_here
+ABUSEIPDB_REQUESTS_PER_MINUTE=60
 ```
 
 Environment variables exported in the shell take precedence over `.env`.
 
-## Usage
+## Desktop Application (GUI)
+
+Launch the full native desktop application (clean blue-and-white enterprise user interface):
+
+```bash
+python run_desktop_app.py
+```
+or:
+```bash
+python -m vt_ioc_checker --gui
+```
+
+## CLI Usage
 
 ```bash
 python -m vt_ioc_checker <input_file> [options]
@@ -55,12 +69,22 @@ Check an IOC list for a specific vendor (`Microsoft`) with a daily lookup cap of
 python -m vt_ioc_checker data/input/iocs.csv --vendor "Microsoft" --max-lookups 200 -o data/output/microsoft_report.xlsx
 ```
 
-Resume an interrupted or rate-limited run (re-run the exact same command):
+Run an **AbuseIPDB Bulk IP Check** (displays the results table with `IP`, `Abuse Score`, `Country`, `Domain` and optionally exports a `.csv` file):
+```bash
+python -m vt_ioc_checker data/input/ips.txt --abuseipdb --export-csv
+```
+
+Export AbuseIPDB results to a custom CSV path:
+```bash
+python -m vt_ioc_checker data/input/ips.txt --abuseipdb --csv data/output/abuse_results.csv
+```
+
+Resume an interrupted or rate-limited VirusTotal run (re-run the exact same command):
 ```bash
 python -m vt_ioc_checker data/input/iocs.txt
 ```
 
-Start fresh and overwrite an existing report without resuming:
+Start fresh and overwrite an existing VirusTotal report without resuming:
 ```bash
 python -m vt_ioc_checker data/input/iocs.txt --no-resume --overwrite
 ```
@@ -69,13 +93,18 @@ python -m vt_ioc_checker data/input/iocs.txt --no-resume --overwrite
 
 | Option | Description |
 | :--- | :--- |
-| `input` | Path to the input IOC file (`.txt`, `.csv`, or `.xlsx`). |
-| `-o`, `--output` | Output Excel report path (`.xlsx`). Default: `data/output/<input_stem>_<vendor>_report.xlsx`. |
-| `--vendor` | Security vendor whose verdict is reported (default: `Sophos`). |
-| `--max-lookups` | Stop after performing this many VirusTotal API lookups in one run. |
-| `--save-every` | Save intermediate progress to the report after every `N` lookups (default: `25`). |
-| `--no-resume` | Do not reuse results from an existing output report (requires `--overwrite` if the file exists). |
-| `--overwrite` | Allow `--no-resume` to replace an existing output report file. |
+| `input` | Path to the input IOC file (`.txt`, `.csv`, or `.xlsx`). Optional when `--gui` is specified. |
+| `--gui` | Launch the desktop graphical user interface (Indicator Workbench). |
+| `-o`, `--output` | Output path (`.xlsx` for VirusTotal, or `.csv` for `--abuseipdb`). Default for VT: `data/output/<input_stem>_<vendor>_report.xlsx`. |
+| `--vendor` | Security vendor whose verdict is reported on VirusTotal (default: `Sophos`). |
+| `--abuseipdb` | Run AbuseIPDB bulk IP check instead of VirusTotal and display the results table (`IP`, `Abuse Score`, `Country`, `Domain`). |
+| `--export-csv` | Export AbuseIPDB results to `data/output/<input_stem>_abuseipdb_report.csv`. |
+| `--csv` | Custom CSV output path (`.csv`) for AbuseIPDB results. |
+| `--max-age` | Maximum report age in days for AbuseIPDB (`1`–`365`, default: `90`). |
+| `--max-lookups` | Stop after performing this many API lookups in one run. |
+| `--save-every` | Save intermediate progress to the VT Excel report after every `N` lookups (default: `25`). |
+| `--no-resume` | Do not reuse results from an existing VT output report (requires `--overwrite` if the file exists). |
+| `--overwrite` | Allow `--no-resume` to replace an existing VT output report file. |
 | `--env-file` | Path to the `.env` configuration file (default: `.env` in the current directory). |
 | `--version` | Print the program version and exit. |
 
@@ -83,22 +112,17 @@ python -m vt_ioc_checker data/input/iocs.txt --no-resume --overwrite
 
 The generated `.xlsx` workbook contains two sheets:
 
-1. **`Results` sheet:**
+1. **`Results` sheet (3 columns):**
    - `IOC`: Canonical indicator value (or raw string for `Invalid` entries).
-   - `Type`: `IP`, `Domain`, `URL`, `MD5`, `SHA1`, `SHA256`, or `Invalid`.
-   - `VT Score`: `<malicious>/<total>` engine count (or `Unknown`).
-   - `VT Malicious`: Number of engines flagging the IOC as malicious.
    - `<Vendor> Status`:
      - `Detected`: Vendor categorized the IOC as `malicious` or `suspicious`.
      - `Clean`: Vendor categorized the IOC as `harmless` or `undetected`.
-     - `No result`: IOC is in VirusTotal, but the selected vendor did not return a verdict (`timeout`, `type-unsupported`, missing, etc.).
-     - `Unknown`: IOC was not found in VirusTotal (HTTP 404).
+     - `Unknown`: IOC was not found in VirusTotal (HTTP 404) or the selected vendor did not return a verdict.
      - `Invalid`: Input string is not a valid supported IOC; not queried.
      - `Error`: Non-fatal request failure for this IOC (retried on resume).
      - `Not checked`: Run stopped before this IOC was queried (checked on resume).
-   - `VT Last Analysis (UTC)`: Timestamp of VirusTotal's last analysis.
-   - `Checked At (UTC)`: Timestamp when the tool queried the IOC.
-   - `Note`: Additional context (e.g., `Not found in VirusTotal`, `Sophos verdict is suspicious (not malicious)`, or stop/error reason).
+   - `VT Score`: `<malicious>/<total>` engine count, or `Unknown` if the IOC is not available on VirusTotal.
+
 
 2. **`Summary` sheet:**
    - Records the checked vendor, input filename, generation timestamp (UTC), total rows in report, duplicates removed, and per-status counts.

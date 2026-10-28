@@ -31,13 +31,8 @@ def make_row(**overrides) -> ReportRow:
     """Helper creating a ReportRow with configurable defaults."""
     defaults = {
         "ioc": "evil.com",
-        "ioc_type": "Domain",
         "vt_score": "5/66",
-        "vt_malicious": 5,
         "vendor_status": "Detected",
-        "vt_last_analysis": "2023-11-14 22:13:20 UTC",
-        "checked_at": "2026-10-25 10:00:00 UTC",
-        "note": "",
     }
     defaults.update(overrides)
     return ReportRow(**defaults)
@@ -45,11 +40,8 @@ def make_row(**overrides) -> ReportRow:
 
 CLEAN_ROW = make_row(
     ioc="8.8.8.8",
-    ioc_type="IP",
     vt_score="0/75",
-    vt_malicious=0,
     vendor_status="Clean",
-    vt_last_analysis="",
 )
 
 
@@ -61,33 +53,18 @@ def test_header_and_rows(tmp_path: Path) -> None:
     ws = wb[RESULTS_SHEET]
     assert [c.value for c in ws[1]] == [
         "IOC",
-        "Type",
-        "VT Score",
-        "VT Malicious",
         "Sophos Status",
-        "VT Last Analysis (UTC)",
-        "Checked At (UTC)",
-        "Note",
+        "VT Score",
     ]
     assert [c.value for c in ws[2]] == [
         "evil.com",
-        "Domain",
-        "5/66",
-        5,
         "Detected",
-        "2023-11-14 22:13:20 UTC",
-        "2026-10-25 10:00:00 UTC",
-        None,
+        "5/66",
     ]
     assert [c.value for c in ws[3]] == [
         "8.8.8.8",
-        "IP",
-        "0/75",
-        0,
         "Clean",
-        None,
-        "2026-10-25 10:00:00 UTC",
-        None,
+        "0/75",
     ]
     assert ws.max_row == 3
     wb.close()
@@ -103,7 +80,7 @@ def test_vendor_in_header(tmp_path: Path) -> None:
     write_report(p, [make_row()], meta)
     wb = openpyxl.load_workbook(p)
     ws = wb[RESULTS_SHEET]
-    assert ws["E1"].value == "CrowdStrike Status"
+    assert ws["B1"].value == "CrowdStrike Status"
     wb.close()
 
 
@@ -113,7 +90,7 @@ def test_freeze_and_filter(tmp_path: Path) -> None:
     wb = openpyxl.load_workbook(p)
     ws = wb[RESULTS_SHEET]
     assert ws.freeze_panes == "A2"
-    assert ws.auto_filter.ref == "A1:H3"
+    assert ws.auto_filter.ref == "A1:C3"
     wb.close()
 
 
@@ -123,7 +100,7 @@ def test_empty_report(tmp_path: Path) -> None:
     wb = openpyxl.load_workbook(p)
     ws = wb[RESULTS_SHEET]
     assert ws.max_row == 1
-    assert ws.auto_filter.ref == "A1:H1"
+    assert ws.auto_filter.ref == "A1:C1"
     wb.close()
     assert read_report_rows(p) == []
 
@@ -149,18 +126,17 @@ def test_summary_sheet(tmp_path: Path) -> None:
     assert summary["B5"].value == 2
     assert summary["A7"].value == "Status"
     assert summary["B7"].value == "Count"
-    a_vals = [summary[f"A{i}"].value for i in range(8, 15)]
-    b_vals = [summary[f"B{i}"].value for i in range(8, 15)]
+    a_vals = [summary[f"A{i}"].value for i in range(8, 14)]
+    b_vals = [summary[f"B{i}"].value for i in range(8, 14)]
     assert a_vals == [
         "Detected",
         "Clean",
-        "No result",
         "Unknown",
         "Invalid",
         "Error",
         "Not checked",
     ]
-    assert b_vals == [2, 1, 0, 1, 1, 0, 0]
+    assert b_vals == [2, 1, 1, 1, 0, 0]
     wb.close()
 
 
@@ -178,7 +154,7 @@ def test_formula_injection_safe(tmp_path: Path) -> None:
         make_row(ioc="+cmd", vendor_status="Invalid"),
         make_row(ioc="-2+3", vendor_status="Invalid"),
         make_row(ioc="@SUM(A1)", vendor_status="Invalid"),
-        make_row(note='=HYPERLINK("http://x")', vendor_status="Invalid"),
+        make_row(vt_score='=HYPERLINK("http://x")', vendor_status="Invalid"),
     ]
     write_report(p, rows, META)
     wb = openpyxl.load_workbook(p)
@@ -188,8 +164,8 @@ def test_formula_injection_safe(tmp_path: Path) -> None:
     assert ws["A4"].data_type == "s" and ws["A4"].value == "-2+3"
     assert ws["A5"].data_type == "s" and ws["A5"].value == "@SUM(A1)"
     assert (
-        ws["H6"].data_type == "s"
-        and ws["H6"].value == '=HYPERLINK("http://x")'
+        ws["C6"].data_type == "s"
+        and ws["C6"].value == '=HYPERLINK("http://x")'
     )
     wb.close()
 
@@ -217,28 +193,18 @@ def test_roundtrip(tmp_path: Path) -> None:
         CLEAN_ROW,
         make_row(
             ioc="0" * 64,
-            ioc_type="SHA256",
             vt_score="Unknown",
-            vt_malicious=None,
             vendor_status="Unknown",
-            vt_last_analysis="",
         ),
         make_row(
             ioc="bad.example",
             vt_score="",
-            vt_malicious=None,
             vendor_status="Error",
-            vt_last_analysis="",
-            note="VirusTotal request failed after 4 attempts (HTTP 503).",
         ),
         make_row(
             ioc="=1+1",
-            ioc_type="Invalid",
             vt_score="",
-            vt_malicious=None,
             vendor_status="Invalid",
-            vt_last_analysis="",
-            checked_at="",
         ),
     ]
     write_report(p, rows, META)
@@ -272,9 +238,9 @@ def test_status_fills_and_bold_header(tmp_path: Path) -> None:
     wb = openpyxl.load_workbook(p)
     ws = wb[RESULTS_SHEET]
     assert ws["A1"].font.bold is True
-    cell_detected = ws["E2"]
-    cell_clean = ws["E3"]
-    cell_unknown = ws["E4"]
+    cell_detected = ws["B2"]
+    cell_clean = ws["B3"]
+    cell_unknown = ws["B4"]
     assert cell_detected.fill.fill_type == "solid"
     assert str(cell_detected.fill.fgColor.rgb)[-6:] == "F8CBAD"
     assert cell_clean.fill.fill_type == "solid"

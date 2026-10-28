@@ -258,9 +258,9 @@ def run_check(
                 break
             else:
                 verdict = build_verdict(result, vendor)
-                if verdict.vendor_status.value == "Unknown":
+                if not result.found:
                     note = NOT_FOUND_NOTE
-                elif verdict.vendor_status.value == "No result":
+                elif verdict.vendor_status.value == "Unknown":
                     cat_part = (
                         f" ({verdict.vendor_category})"
                         if verdict.vendor_category
@@ -290,7 +290,11 @@ def run_check(
                     f"[{position}/{len(pending)}] {entry.value[:60]} -> score {verdict.score}, {vendor.strip()} {verdict.vendor_status.value}"
                 )
 
-            if position < len(pending) and looked_up % save_every == 0:
+            if (
+                position < len(pending)
+                and looked_up % save_every == 0
+                and (max_lookups is None or looked_up < max_lookups)
+            ):
                 try:
                     write_report(out, _rows(), _meta())
                 except ReportWriteError:

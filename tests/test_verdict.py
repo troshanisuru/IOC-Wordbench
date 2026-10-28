@@ -184,7 +184,7 @@ def test_status_labels() -> None:
     assert VendorStatus.DETECTED.value == "Detected"
     assert VendorStatus.CLEAN.value == "Clean"
     assert VendorStatus.NOT_IN_VT.value == "Unknown"
-    assert VendorStatus.NO_RESULT.value == "No result"
+    assert VendorStatus.NO_RESULT.value == "Unknown"
 
 
 def test_empty_vendor_raises() -> None:
