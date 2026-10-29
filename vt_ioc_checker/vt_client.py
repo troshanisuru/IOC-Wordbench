@@ -75,7 +75,12 @@ def build_reanalyze_url(ioc_type: IocType, value: str) -> str:
 
 def build_analysis_url(analysis_id: str) -> str:
     """Constructs the VirusTotal API v3 analysis status endpoint URL."""
-    return f"{VT_API_BASE}/analyses/{analysis_id}"
+    cleaned = analysis_id.strip()
+    if not cleaned or ".." in cleaned or any(c in cleaned for c in ("/", "\\", "?", "#", "\r", "\n", "\x00")):
+        raise ValueError("Invalid analysis_id.")
+    from urllib.parse import quote
+
+    return f"{VT_API_BASE}/analyses/{quote(cleaned, safe='')}"
 
 
 class RateLimiter:
@@ -319,20 +324,24 @@ class VTClient:
                     return VTResult(found=False)
                 analysis_id = _extract_analysis_id(post_resp)
                 if analysis_id is not None:
-                    analysis_url = build_analysis_url(analysis_id)
-                    for _ in range(self._max_poll_attempts):
-                        if self._poll_wait > 0:
-                            self._sleep(self._poll_wait)
-                        try:
-                            poll_resp = self._send_with_retries(
-                                "GET", analysis_url
-                            )
-                        except VTRequestError:
-                            break
-                        if poll_resp.status_code == 200:
-                            parsed = _parse_analysis_200(poll_resp)
-                            if parsed is not None:
-                                return parsed
+                    try:
+                        analysis_url = build_analysis_url(analysis_id)
+                    except ValueError:
+                        analysis_url = None
+                    if analysis_url is not None:
+                        for _ in range(self._max_poll_attempts):
+                            if self._poll_wait > 0:
+                                self._sleep(self._poll_wait)
+                            try:
+                                poll_resp = self._send_with_retries(
+                                    "GET", analysis_url
+                                )
+                            except VTRequestError:
+                                break
+                            if poll_resp.status_code == 200:
+                                parsed = _parse_analysis_200(poll_resp)
+                                if parsed is not None:
+                                    return parsed
 
         resp = self._send_with_retries("GET", url)
         if resp.status_code == 404:
