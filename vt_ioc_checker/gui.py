@@ -58,9 +58,16 @@ from vt_ioc_checker.vt_client import (
     VTRequestError,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-OUTPUT_DIR = PROJECT_ROOT / "data" / "output"
-SAMPLE_INPUT = PROJECT_ROOT / "data" / "input" / "sample_iocs.txt"
+if getattr(sys, "frozen", False):
+    _BUNDLE_ROOT = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    PROJECT_ROOT = Path.home() / ".vt-ioc-checker"
+    PROJECT_ROOT.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR = PROJECT_ROOT / "data" / "output"
+    SAMPLE_INPUT = _BUNDLE_ROOT / "data" / "input" / "sample_iocs.txt"
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    OUTPUT_DIR = PROJECT_ROOT / "data" / "output"
+    SAMPLE_INPUT = PROJECT_ROOT / "data" / "input" / "sample_iocs.txt"
 
 # Blue & white design tokens
 C = {

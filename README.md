@@ -57,6 +57,35 @@ python -m vt_ioc_checker --gui
 - **AbuseIPDB Bulk IP Check:** Check IP reputation scores, country, and domain with real-time counters and CSV export.
 - **API Settings & Status Tab:** Enter, view, test, and save custom VirusTotal and AbuseIPDB API keys and rate limits directly within the app without editing `.env` manually. Includes instant connection testing and live status indicators.
 
+## Standalone Installers & Executables (macOS, Linux, Windows)
+
+You can package `IOC Workbench` as a standalone desktop application without requiring end users to install Python:
+
+### 1. macOS Installation App (`.app`, `.zip`, & `.dmg` Installer)
+Build the native macOS application bundle (`dist/IOC Workbench.app`), create the macOS installer archive (`dist/IOC-Workbench-macOS-Installer.zip` / `.dmg`), and install to `/Applications` (or `~/Applications`):
+```bash
+./installers/install_macos.sh
+```
+
+### 2. Linux Desktop App & Installer (`IOC-Workbench-Linux` & `.desktop`)
+Build the standalone Linux binary (`dist/IOC-Workbench-Linux`), create the distributable installer tarball (`dist/IOC-Workbench-Linux-Installer.tar.gz`), and register the desktop launcher:
+```bash
+./installers/install_linux.sh
+```
+
+### 3. Windows Standalone Executable (`IOC-Workbench.exe`)
+On Windows, run the batch builder to produce a single-file standalone GUI executable (`dist\IOC-Workbench.exe`):
+```bat
+installers\build_windows.bat
+```
+
+### Automated Multi-OS Builds (GitHub Actions)
+The repository includes [`.github/workflows/build-installers.yml`](.github/workflows/build-installers.yml), which automatically builds:
+- `IOC-Workbench-macOS-Installer` (`.dmg`)
+- `IOC-Workbench-Linux-Installer` (`IOC-Workbench-Linux` + `.tar.gz` installer)
+- `IOC-Workbench-Windows-Executable` (`IOC-Workbench.exe`)
+on every push to `main` or version tag (`v*`).
+
 ## CLI Usage
 
 ```bash

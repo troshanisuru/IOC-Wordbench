@@ -26,9 +26,15 @@ data/output/*
 .vscode/
 .DS_Store
 
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
 .env.*
 !.env.example
 *.txt
 !requirements.txt
 !requirements-dev.txt
+
 
