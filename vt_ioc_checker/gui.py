@@ -64,10 +64,12 @@ if getattr(sys, "frozen", False):
     PROJECT_ROOT.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR = PROJECT_ROOT / "data" / "output"
     SAMPLE_INPUT = _BUNDLE_ROOT / "data" / "input" / "sample_iocs.txt"
+    ASSETS_DIR = _BUNDLE_ROOT / "assets"
 else:
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
     OUTPUT_DIR = PROJECT_ROOT / "data" / "output"
     SAMPLE_INPUT = PROJECT_ROOT / "data" / "input" / "sample_iocs.txt"
+    ASSETS_DIR = PROJECT_ROOT / "assets"
 
 # Blue & white design tokens
 C = {
@@ -1703,6 +1705,7 @@ class WorkbenchApp(ctk.CTk):
         self.geometry("1240x860")
         self.minsize(1040, 720)
         _style_table()
+        self._load_app_icon()
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -1723,6 +1726,26 @@ class WorkbenchApp(ctk.CTk):
         self.show("vt")
         self.protocol("WM_DELETE_WINDOW", self._close)
 
+    def _load_app_icon(self) -> None:
+        """Sets the application window icon for taskbar, title bar, and dock."""
+        self._icon_img: Optional[tk.PhotoImage] = None
+        icon_ico = ASSETS_DIR / "icon.ico"
+        icon_png = ASSETS_DIR / "icon.png"
+
+        if sys.platform.startswith("win") and icon_ico.is_file():
+            try:
+                self.iconbitmap(str(icon_ico))
+                return
+            except Exception:
+                pass
+
+        if icon_png.is_file():
+            try:
+                self._icon_img = tk.PhotoImage(file=str(icon_png))
+                self.iconphoto(False, self._icon_img)
+            except Exception:
+                pass
+
     def _build_sidebar(self) -> None:
         bar = ctk.CTkFrame(self, fg_color=C["sidebar"], corner_radius=0, width=250)
         bar.grid(row=0, column=0, sticky="nsw")
@@ -1730,19 +1753,53 @@ class WorkbenchApp(ctk.CTk):
 
         brand = ctk.CTkFrame(bar, fg_color="transparent")
         brand.pack(fill="x", padx=22, pady=(30, 24))
-        badge = ctk.CTkFrame(brand, fg_color=C["primary"], corner_radius=11, width=40, height=40)
-        badge.pack(side="left")
-        badge.pack_propagate(False)
-        ctk.CTkLabel(
-            badge, text="IO", text_color="white", font=ctk.CTkFont(size=15, weight="bold")
-        ).pack(expand=True)
+
+        icon_path = ASSETS_DIR / "icon.png"
+        icon_loaded = False
+        if icon_path.is_file():
+            try:
+                from PIL import Image
+
+                pil_icon = Image.open(icon_path).resize(
+                    (38, 38), Image.Resampling.LANCZOS
+                )
+                self._brand_icon = ctk.CTkImage(
+                    light_image=pil_icon, dark_image=pil_icon, size=(38, 38)
+                )
+                badge = ctk.CTkLabel(
+                    brand, text="", image=self._brand_icon, width=40, height=40
+                )
+                badge.pack(side="left")
+                icon_loaded = True
+            except Exception:
+                icon_loaded = False
+
+        if not icon_loaded:
+            badge = ctk.CTkFrame(
+                brand, fg_color=C["primary"], corner_radius=11, width=40, height=40
+            )
+            badge.pack(side="left")
+            badge.pack_propagate(False)
+            ctk.CTkLabel(
+                badge,
+                text="IO",
+                text_color="white",
+                font=ctk.CTkFont(size=15, weight="bold"),
+            ).pack(expand=True)
+
         names = ctk.CTkFrame(brand, fg_color="transparent")
         names.pack(side="left", padx=12)
         ctk.CTkLabel(
-            names, text="IOC Workbench", text_color="white", font=ctk.CTkFont(size=17, weight="bold")
+            names,
+            text="IOC Workbench",
+            text_color="white",
+            font=ctk.CTkFont(size=17, weight="bold"),
         ).pack(anchor="w")
         ctk.CTkLabel(
-            names, text=f"Version {__version__}", text_color="#8FA7D8", font=ctk.CTkFont(size=11)
+            names,
+            text=f"Version {__version__}",
+            text_color="#8FA7D8",
+            font=ctk.CTkFont(size=11),
         ).pack(anchor="w")
 
         # Navigation Buttons

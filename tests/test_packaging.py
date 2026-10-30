@@ -47,3 +47,28 @@ def test_build_linux_creates_tar_installer(
     build_app.build_linux()
     assert (dist_dir / "IOC-Workbench-Linux").is_file()
     assert (dist_dir / "IOC-Workbench-Linux-Installer.tar.gz").is_file()
+
+
+def test_icon_generation_and_assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from installers import generate_icon
+
+    test_assets = tmp_path / "assets"
+    monkeypatch.setattr(generate_icon, "ASSETS_DIR", test_assets)
+
+    # Test master icon drawing at small size for speed
+    img = generate_icon.draw_master_icon(size=64)
+    assert img.size == (64, 64)
+    assert img.mode == "RGBA"
+
+    ico_out = test_assets / "icon.ico"
+    test_assets.mkdir(parents=True, exist_ok=True)
+    generate_icon.build_ico(img, ico_out)
+    assert ico_out.is_file()
+    assert ico_out.stat().st_size > 0
+
+    # Verify project assets exist
+    project_assets = Path(__file__).resolve().parent.parent / "assets"
+    assert (project_assets / "icon.png").is_file()
+    assert (project_assets / "icon.ico").is_file()
+    assert (project_assets / "icon.icns").is_file()
+

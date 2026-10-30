@@ -15,9 +15,13 @@ fi
 
 BIN_DIR="${HOME}/.local/bin"
 APP_DIR="${HOME}/.local/share/applications"
-mkdir -p "${BIN_DIR}" "${APP_DIR}"
+ICON_DIR="${HOME}/.local/share/icons/hicolor/256x256/apps"
+mkdir -p "${BIN_DIR}" "${APP_DIR}" "${ICON_DIR}"
 
 install -m 0755 "dist/IOC-Workbench-Linux" "${BIN_DIR}/ioc-workbench"
+if [ -f "assets/icon.png" ]; then
+    install -m 0644 "assets/icon.png" "${ICON_DIR}/ioc-workbench.png"
+fi
 
 cat > "${APP_DIR}/ioc-workbench.desktop" <<EOF
 [Desktop Entry]
@@ -25,6 +29,7 @@ Type=Application
 Name=IOC Workbench
 Comment=VirusTotal & AbuseIPDB Security Indicator Analyzer
 Exec=${BIN_DIR}/ioc-workbench
+Icon=ioc-workbench
 Terminal=false
 Categories=Security;Network;Utility;
 EOF

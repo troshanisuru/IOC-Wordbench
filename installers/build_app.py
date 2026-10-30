@@ -19,12 +19,22 @@ import tarfile
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DIST_DIR = PROJECT_ROOT / "dist"
 BUILD_DIR = PROJECT_ROOT / "build"
+ASSETS_DIR = PROJECT_ROOT / "assets"
 ENTRYPOINT = PROJECT_ROOT / "run_desktop_app.py"
 SAMPLE_FILE = PROJECT_ROOT / "data" / "input" / "sample_iocs.txt"
 
 os.environ.setdefault("PYINSTALLER_CONFIG_DIR", str(BUILD_DIR / ".pyinstaller_cache"))
 
 import PyInstaller.__main__
+
+
+def _ensure_icons() -> None:
+    """Ensures icon assets exist, generating them if missing."""
+    icon_png = ASSETS_DIR / "icon.png"
+    if not icon_png.is_file():
+        from installers.generate_icon import main as gen_icons
+
+        gen_icons()
 
 
 def _clean_previous() -> None:
@@ -36,6 +46,7 @@ def _clean_previous() -> None:
 
 def _common_pyinstaller_args() -> list[str]:
     """Returns PyInstaller arguments shared across macOS, Linux, and Windows."""
+    _ensure_icons()
     args = [
         str(ENTRYPOINT),
         "--noconfirm",
@@ -56,9 +67,11 @@ def _common_pyinstaller_args() -> list[str]:
         "--exclude-module",
         "numpy",
     ]
+    sep = ";" if sys.platform.startswith("win") else ":"
     if SAMPLE_FILE.is_file():
-        sep = ";" if sys.platform.startswith("win") else ":"
         args.extend(["--add-data", f"{SAMPLE_FILE}{sep}data/input"])
+    if (ASSETS_DIR / "icon.png").is_file():
+        args.extend(["--add-data", f"{ASSETS_DIR}{sep}assets"])
     return args
 
 
@@ -72,6 +85,9 @@ def build_macos() -> None:
         "--osx-bundle-identifier",
         "com.vtiocchecker.workbench",
     ]
+    icon_icns = ASSETS_DIR / "icon.icns"
+    if icon_icns.is_file():
+        args.extend(["--icon", str(icon_icns)])
     PyInstaller.__main__.run(args)
 
     app_path = DIST_DIR / "IOC Workbench.app"
@@ -134,6 +150,9 @@ def build_windows() -> None:
         "--name",
         "IOC-Workbench",
     ]
+    icon_ico = ASSETS_DIR / "icon.ico"
+    if icon_ico.is_file():
+        args.extend(["--icon", str(icon_ico)])
     PyInstaller.__main__.run(args)
     exe_path = DIST_DIR / "IOC-Workbench.exe"
     print(f"\nSuccess! Built standalone Windows executable:\n  - {exe_path}")
@@ -147,6 +166,9 @@ def build_linux() -> None:
         "--name",
         "IOC-Workbench-Linux",
     ]
+    icon_png = ASSETS_DIR / "icon.png"
+    if icon_png.is_file():
+        args.extend(["--icon", str(icon_png)])
     PyInstaller.__main__.run(args)
 
     bin_path = DIST_DIR / "IOC-Workbench-Linux"
@@ -161,6 +183,9 @@ def build_linux() -> None:
     staging.mkdir(parents=True, exist_ok=True)
 
     shutil.copy2(bin_path, staging / "IOC-Workbench-Linux")
+    if icon_png.is_file():
+        shutil.copy2(icon_png, staging / "ioc-workbench.png")
+
     install_script = staging / "install.sh"
     install_script.write_text(
         """#!/usr/bin/env bash
@@ -169,9 +194,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="${HOME}/.local/bin"
 APP_DIR="${HOME}/.local/share/applications"
+ICON_DIR="${HOME}/.local/share/icons/hicolor/256x256/apps"
 
-mkdir -p "${BIN_DIR}" "${APP_DIR}"
+mkdir -p "${BIN_DIR}" "${APP_DIR}" "${ICON_DIR}"
 install -m 0755 "${SCRIPT_DIR}/IOC-Workbench-Linux" "${BIN_DIR}/ioc-workbench"
+if [ -f "${SCRIPT_DIR}/ioc-workbench.png" ]; then
+    install -m 0644 "${SCRIPT_DIR}/ioc-workbench.png" "${ICON_DIR}/ioc-workbench.png"
+fi
 
 cat > "${APP_DIR}/ioc-workbench.desktop" <<EOF
 [Desktop Entry]
@@ -179,6 +208,7 @@ Type=Application
 Name=IOC Workbench
 Comment=VirusTotal & AbuseIPDB Security Indicator Analyzer
 Exec=${BIN_DIR}/ioc-workbench
+Icon=ioc-workbench
 Terminal=false
 Categories=Security;Network;Utility;
 EOF
