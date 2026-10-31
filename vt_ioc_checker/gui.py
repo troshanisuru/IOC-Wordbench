@@ -1189,7 +1189,31 @@ class SettingsPage(ctk.CTkFrame):
         )
         self.security_notice_label.pack(fill="x", padx=20, pady=(0, 12))
 
-    def _build_vt_card(self, parent: ctk.CTkFrame) -> None:
+    def _build_service_card(self, parent: ctk.CTkFrame, service: str) -> None:
+        is_vt = service == "vt"
+        row = 1 if is_vt else 2
+        badge_text = "VT" if is_vt else "IP"
+        title = "VirusTotal API v3" if is_vt else "AbuseIPDB API v2"
+        subtitle = (
+            "Used for file hash, URL, domain, and IP reanalysis and detection verdicts."
+            if is_vt
+            else "Used for bulk IP reputation, confidence scoring, country, and domain checks."
+        )
+        env_label = "VT_API_KEY" if is_vt else "ABUSEIPDB_API_KEY"
+        key_placeholder = (
+            "Enter your VirusTotal API key (64 characters)"
+            if is_vt
+            else "Enter your AbuseIPDB API key (80 characters)"
+        )
+        default_rpm = "4" if is_vt else "60"
+        rpm_hint = (
+            "(Free public key: 4 RPM / 500 daily. Enterprise key: set higher)"
+            if is_vt
+            else "(Free tier: 1,000 checks/day. Standard burst: 60 RPM)"
+        )
+        toggle_cmd = self._toggle_vt_show if is_vt else self._toggle_abuse_show
+        test_cmd = self._test_vt_connection if is_vt else self._test_abuse_connection
+
         card = ctk.CTkFrame(
             parent,
             fg_color=C["card"],
@@ -1197,7 +1221,7 @@ class SettingsPage(ctk.CTkFrame):
             border_width=1,
             border_color=C["border"],
         )
-        card.grid(row=1, column=0, sticky="ew", pady=(0, 16))
+        card.grid(row=row, column=0, sticky="ew", pady=(0, 16))
         card.grid_columnconfigure(0, weight=1)
 
         # Header with Logo Badge
@@ -1211,25 +1235,25 @@ class SettingsPage(ctk.CTkFrame):
         badge.grid(row=0, column=0, padx=(0, 12))
         badge.pack_propagate(False)
         ctk.CTkLabel(
-            badge, text="VT", text_color="white", font=ctk.CTkFont(size=12, weight="bold")
+            badge, text=badge_text, text_color="white", font=ctk.CTkFont(size=12, weight="bold")
         ).pack(expand=True)
 
         names = ctk.CTkFrame(top, fg_color="transparent")
         names.grid(row=0, column=1, sticky="w")
         ctk.CTkLabel(
             names,
-            text="VirusTotal API v3",
+            text=title,
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=C["text"],
         ).pack(anchor="w")
         ctk.CTkLabel(
             names,
-            text="Used for file hash, URL, domain, and IP reanalysis and detection verdicts.",
+            text=subtitle,
             font=ctk.CTkFont(size=12),
             text_color=C["muted"],
         ).pack(anchor="w")
 
-        self.vt_status_pill = ctk.CTkLabel(
+        status_pill = ctk.CTkLabel(
             top,
             text="Checking status...",
             font=ctk.CTkFont(size=12, weight="bold"),
@@ -1239,7 +1263,7 @@ class SettingsPage(ctk.CTkFrame):
             padx=12,
             pady=4,
         )
-        self.vt_status_pill.grid(row=0, column=2, sticky="e")
+        status_pill.grid(row=0, column=2, sticky="e")
 
         # Fields
         fields = ctk.CTkFrame(card, fg_color="transparent")
@@ -1249,7 +1273,7 @@ class SettingsPage(ctk.CTkFrame):
         # API Key
         ctk.CTkLabel(
             fields,
-            text="API Key (VT_API_KEY) — Copying Disabled",
+            text=f"API Key ({env_label}) — Copying Disabled",
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=C["muted"],
         ).grid(row=0, column=0, sticky="w", pady=(0, 4))
@@ -1258,22 +1282,22 @@ class SettingsPage(ctk.CTkFrame):
         key_box.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         key_box.grid_columnconfigure(0, weight=1)
 
-        self.vt_key_var = tk.StringVar()
-        self.vt_key_entry = ctk.CTkEntry(
+        key_var = tk.StringVar()
+        key_entry = ctk.CTkEntry(
             key_box,
-            textvariable=self.vt_key_var,
+            textvariable=key_var,
             show="*",
             height=40,
             corner_radius=10,
             border_color=C["border"],
             fg_color="#F8FAFD",
             text_color=C["text"],
-            placeholder_text="Enter your VirusTotal API key (64 characters)",
+            placeholder_text=key_placeholder,
         )
-        self.vt_key_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        self._secure_key_entry(self.vt_key_entry)
+        key_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self._secure_key_entry(key_entry)
 
-        self.vt_show_btn = ctk.CTkButton(
+        show_btn = ctk.CTkButton(
             key_box,
             text="Show",
             width=80,
@@ -1283,9 +1307,9 @@ class SettingsPage(ctk.CTkFrame):
             hover_color="#D6E4FF",
             text_color=C["primary"],
             font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._toggle_vt_show,
+            command=toggle_cmd,
         )
-        self.vt_show_btn.grid(row=0, column=1)
+        show_btn.grid(row=0, column=1)
 
         # Rate Limit & Test Connection Row
         bot_row = ctk.CTkFrame(fields, fg_color="transparent")
@@ -1302,10 +1326,10 @@ class SettingsPage(ctk.CTkFrame):
             text_color=C["muted"],
         ).pack(side="left", padx=(0, 8))
 
-        self.vt_rpm_var = tk.StringVar(value="4")
-        self.vt_rpm_entry = ctk.CTkEntry(
+        rpm_var = tk.StringVar(value=default_rpm)
+        rpm_entry = ctk.CTkEntry(
             rpm_box,
-            textvariable=self.vt_rpm_var,
+            textvariable=rpm_var,
             width=70,
             height=36,
             corner_radius=9,
@@ -1313,16 +1337,16 @@ class SettingsPage(ctk.CTkFrame):
             fg_color="#F8FAFD",
             text_color=C["text"],
         )
-        self.vt_rpm_entry.pack(side="left", padx=(0, 10))
+        rpm_entry.pack(side="left", padx=(0, 10))
 
         ctk.CTkLabel(
             rpm_box,
-            text="(Free public key: 4 RPM / 500 daily. Enterprise key: set higher)",
+            text=rpm_hint,
             font=ctk.CTkFont(size=11),
             text_color=C["muted"],
         ).pack(side="left")
 
-        self.vt_test_btn = ctk.CTkButton(
+        test_btn = ctk.CTkButton(
             bot_row,
             text="Test Connection",
             width=140,
@@ -1332,176 +1356,44 @@ class SettingsPage(ctk.CTkFrame):
             hover_color="#D6E4FF",
             text_color=C["primary"],
             font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._test_vt_connection,
+            command=test_cmd,
         )
-        self.vt_test_btn.grid(row=0, column=1, sticky="e")
+        test_btn.grid(row=0, column=1, sticky="e")
 
         # Test Result Notification Line
-        self.vt_test_result = ctk.CTkLabel(
+        test_result = ctk.CTkLabel(
             card,
             text="",
             font=ctk.CTkFont(size=12),
             text_color=C["muted"],
             anchor="w",
         )
-        self.vt_test_result.grid(row=2, column=0, sticky="w", padx=20, pady=(0, 14))
+        test_result.grid(row=2, column=0, sticky="w", padx=20, pady=(0, 14))
+
+        if is_vt:
+            self.vt_status_pill = status_pill
+            self.vt_key_var = key_var
+            self.vt_key_entry = key_entry
+            self.vt_show_btn = show_btn
+            self.vt_rpm_var = rpm_var
+            self.vt_rpm_entry = rpm_entry
+            self.vt_test_btn = test_btn
+            self.vt_test_result = test_result
+        else:
+            self.abuse_status_pill = status_pill
+            self.abuse_key_var = key_var
+            self.abuse_key_entry = key_entry
+            self.abuse_show_btn = show_btn
+            self.abuse_rpm_var = rpm_var
+            self.abuse_rpm_entry = rpm_entry
+            self.abuse_test_btn = test_btn
+            self.abuse_test_result = test_result
+
+    def _build_vt_card(self, parent: ctk.CTkFrame) -> None:
+        self._build_service_card(parent, "vt")
 
     def _build_abuse_card(self, parent: ctk.CTkFrame) -> None:
-        card = ctk.CTkFrame(
-            parent,
-            fg_color=C["card"],
-            corner_radius=14,
-            border_width=1,
-            border_color=C["border"],
-        )
-        card.grid(row=2, column=0, sticky="ew", pady=(0, 16))
-        card.grid_columnconfigure(0, weight=1)
-
-        # Header with Logo Badge
-        top = ctk.CTkFrame(card, fg_color="transparent")
-        top.grid(row=0, column=0, sticky="ew", padx=20, pady=(18, 12))
-        top.grid_columnconfigure(1, weight=1)
-
-        badge = ctk.CTkFrame(
-            top, fg_color=C["primary"], corner_radius=8, width=34, height=34
-        )
-        badge.grid(row=0, column=0, padx=(0, 12))
-        badge.pack_propagate(False)
-        ctk.CTkLabel(
-            badge, text="IP", text_color="white", font=ctk.CTkFont(size=12, weight="bold")
-        ).pack(expand=True)
-
-        names = ctk.CTkFrame(top, fg_color="transparent")
-        names.grid(row=0, column=1, sticky="w")
-        ctk.CTkLabel(
-            names,
-            text="AbuseIPDB API v2",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=C["text"],
-        ).pack(anchor="w")
-        ctk.CTkLabel(
-            names,
-            text="Used for bulk IP reputation, confidence scoring, country, and domain checks.",
-            font=ctk.CTkFont(size=12),
-            text_color=C["muted"],
-        ).pack(anchor="w")
-
-        self.abuse_status_pill = ctk.CTkLabel(
-            top,
-            text="Checking status...",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=C["muted"],
-            fg_color=C["primary_soft"],
-            corner_radius=8,
-            padx=12,
-            pady=4,
-        )
-        self.abuse_status_pill.grid(row=0, column=2, sticky="e")
-
-        # Fields
-        fields = ctk.CTkFrame(card, fg_color="transparent")
-        fields.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 16))
-        fields.grid_columnconfigure(0, weight=1)
-
-        # API Key
-        ctk.CTkLabel(
-            fields,
-            text="API Key (ABUSEIPDB_API_KEY) — Copying Disabled",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=C["muted"],
-        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
-
-        key_box = ctk.CTkFrame(fields, fg_color="transparent")
-        key_box.grid(row=1, column=0, sticky="ew", pady=(0, 12))
-        key_box.grid_columnconfigure(0, weight=1)
-
-        self.abuse_key_var = tk.StringVar()
-        self.abuse_key_entry = ctk.CTkEntry(
-            key_box,
-            textvariable=self.abuse_key_var,
-            show="*",
-            height=40,
-            corner_radius=10,
-            border_color=C["border"],
-            fg_color="#F8FAFD",
-            text_color=C["text"],
-            placeholder_text="Enter your AbuseIPDB API key (80 characters)",
-        )
-        self.abuse_key_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        self._secure_key_entry(self.abuse_key_entry)
-
-        self.abuse_show_btn = ctk.CTkButton(
-            key_box,
-            text="Show",
-            width=80,
-            height=40,
-            corner_radius=10,
-            fg_color=C["primary_soft"],
-            hover_color="#D6E4FF",
-            text_color=C["primary"],
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._toggle_abuse_show,
-        )
-        self.abuse_show_btn.grid(row=0, column=1)
-
-        # Rate Limit & Test Connection Row
-        bot_row = ctk.CTkFrame(fields, fg_color="transparent")
-        bot_row.grid(row=2, column=0, sticky="ew")
-        bot_row.grid_columnconfigure(0, weight=1)
-
-        rpm_box = ctk.CTkFrame(bot_row, fg_color="transparent")
-        rpm_box.grid(row=0, column=0, sticky="w")
-
-        ctk.CTkLabel(
-            rpm_box,
-            text="Requests Per Minute (RPM):",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=C["muted"],
-        ).pack(side="left", padx=(0, 8))
-
-        self.abuse_rpm_var = tk.StringVar(value="60")
-        self.abuse_rpm_entry = ctk.CTkEntry(
-            rpm_box,
-            textvariable=self.abuse_rpm_var,
-            width=70,
-            height=36,
-            corner_radius=9,
-            border_color=C["border"],
-            fg_color="#F8FAFD",
-            text_color=C["text"],
-        )
-        self.abuse_rpm_entry.pack(side="left", padx=(0, 10))
-
-        ctk.CTkLabel(
-            rpm_box,
-            text="(Free tier: 1,000 checks/day. Standard burst: 60 RPM)",
-            font=ctk.CTkFont(size=11),
-            text_color=C["muted"],
-        ).pack(side="left")
-
-        self.abuse_test_btn = ctk.CTkButton(
-            bot_row,
-            text="Test Connection",
-            width=140,
-            height=36,
-            corner_radius=9,
-            fg_color=C["primary_soft"],
-            hover_color="#D6E4FF",
-            text_color=C["primary"],
-            font=ctk.CTkFont(size=12, weight="bold"),
-            command=self._test_abuse_connection,
-        )
-        self.abuse_test_btn.grid(row=0, column=1, sticky="e")
-
-        # Test Result Notification Line
-        self.abuse_test_result = ctk.CTkLabel(
-            card,
-            text="",
-            font=ctk.CTkFont(size=12),
-            text_color=C["muted"],
-            anchor="w",
-        )
-        self.abuse_test_result.grid(row=2, column=0, sticky="w", padx=20, pady=(0, 14))
+        self._build_service_card(parent, "abuse")
 
     def _build_actions_card(self, parent: ctk.CTkFrame) -> None:
         card = ctk.CTkFrame(
@@ -1737,15 +1629,21 @@ class SettingsPage(ctk.CTkFrame):
         self._set_abuse_visible(False)
         self._update_lock_ui()
 
+    def _set_service_visible(self, service: str, val: bool) -> None:
+        if service == "vt":
+            self.vt_visible = val
+            self.vt_key_entry.configure(show="" if val else "*")
+            self.vt_show_btn.configure(text="Hide" if val else "Show")
+        else:
+            self.abuse_visible = val
+            self.abuse_key_entry.configure(show="" if val else "*")
+            self.abuse_show_btn.configure(text="Hide" if val else "Show")
+
     def _set_vt_visible(self, val: bool) -> None:
-        self.vt_visible = val
-        self.vt_key_entry.configure(show="" if val else "*")
-        self.vt_show_btn.configure(text="Hide" if val else "Show")
+        self._set_service_visible("vt", val)
 
     def _set_abuse_visible(self, val: bool) -> None:
-        self.abuse_visible = val
-        self.abuse_key_entry.configure(show="" if val else "*")
-        self.abuse_show_btn.configure(text="Hide" if val else "Show")
+        self._set_service_visible("abuse", val)
 
     def _update_lock_ui(self) -> None:
         if self.is_unlocked:
@@ -1777,130 +1675,98 @@ class SettingsPage(ctk.CTkFrame):
                 text_color="white",
             )
 
-    def _toggle_vt_show(self) -> None:
-        if self.vt_key_entry.cget("show") == "*":
+    def _toggle_service_show(self, service: str) -> None:
+        entry = self.vt_key_entry if service == "vt" else self.abuse_key_entry
+        if entry.cget("show") == "*":
             if not self.is_unlocked:
-                self._request_unlock(target="vt")
+                self._request_unlock(target=service)
             else:
-                self._set_vt_visible(True)
+                self._set_service_visible(service, True)
         else:
-            self._set_vt_visible(False)
+            self._set_service_visible(service, False)
+
+    def _toggle_vt_show(self) -> None:
+        self._toggle_service_show("vt")
 
     def _toggle_abuse_show(self) -> None:
-        if self.abuse_key_entry.cget("show") == "*":
-            if not self.is_unlocked:
-                self._request_unlock(target="abuse")
-            else:
-                self._set_abuse_visible(True)
-        else:
-            self._set_abuse_visible(False)
+        self._toggle_service_show("abuse")
+
+    def _test_service_connection(self, service: str) -> None:
+        is_vt = service == "vt"
+        name = "VirusTotal" if is_vt else "AbuseIPDB"
+        key_var = self.vt_key_var if is_vt else self.abuse_key_var
+        test_btn = self.vt_test_btn if is_vt else self.abuse_test_btn
+        test_result = self.vt_test_result if is_vt else self.abuse_test_result
+        status_pill = self.vt_status_pill if is_vt else self.abuse_status_pill
+        test_fn = test_vt_api_connection if is_vt else test_abuseipdb_api_connection
+
+        key = key_var.get().strip()
+        if not key:
+            test_result.configure(
+                text=f"Please enter a {name} API key to test.",
+                text_color="#DC2626",
+            )
+            return
+
+        test_btn.configure(text="Testing...", state="disabled")
+        test_result.configure(
+            text=f"Testing {name} API connection...", text_color=C["muted"]
+        )
+
+        def _worker() -> None:
+            ok, msg = test_fn(key)
+
+            def _update() -> None:
+                test_btn.configure(text="Test Connection", state="normal")
+                color = C["ok"] if ok else "#DC2626"
+                test_result.configure(text=msg, text_color=color)
+                if ok:
+                    status_pill.configure(
+                        text="● Ready (Verified)",
+                        text_color=C["ok"],
+                        fg_color="#DCFCE7",
+                    )
+                else:
+                    status_pill.configure(
+                        text="● Auth Error",
+                        text_color="#DC2626",
+                        fg_color="#FEE2E2",
+                    )
+
+            self.after(0, _update)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _test_vt_connection(self) -> None:
-        key = self.vt_key_var.get().strip()
-        if not key:
-            self.vt_test_result.configure(
-                text="Please enter a VirusTotal API key to test.",
-                text_color="#DC2626",
-            )
-            return
-
-        self.vt_test_btn.configure(text="Testing...", state="disabled")
-        self.vt_test_result.configure(
-            text="Testing VirusTotal API connection...", text_color=C["muted"]
-        )
-
-        def _worker() -> None:
-            ok, msg = test_vt_api_connection(key)
-
-            def _update() -> None:
-                self.vt_test_btn.configure(text="Test Connection", state="normal")
-                color = C["ok"] if ok else "#DC2626"
-                self.vt_test_result.configure(text=msg, text_color=color)
-                if ok:
-                    self.vt_status_pill.configure(
-                        text="● Ready (Verified)",
-                        text_color=C["ok"],
-                        fg_color="#DCFCE7",
-                    )
-                else:
-                    self.vt_status_pill.configure(
-                        text="● Auth Error",
-                        text_color="#DC2626",
-                        fg_color="#FEE2E2",
-                    )
-
-            self.after(0, _update)
-
-        threading.Thread(target=_worker, daemon=True).start()
+        self._test_service_connection("vt")
 
     def _test_abuse_connection(self) -> None:
-        key = self.abuse_key_var.get().strip()
-        if not key:
-            self.abuse_test_result.configure(
-                text="Please enter an AbuseIPDB API key to test.",
-                text_color="#DC2626",
-            )
-            return
-
-        self.abuse_test_btn.configure(text="Testing...", state="disabled")
-        self.abuse_test_result.configure(
-            text="Testing AbuseIPDB API connection...", text_color=C["muted"]
-        )
-
-        def _worker() -> None:
-            ok, msg = test_abuseipdb_api_connection(key)
-
-            def _update() -> None:
-                self.abuse_test_btn.configure(
-                    text="Test Connection", state="normal"
-                )
-                color = C["ok"] if ok else "#DC2626"
-                self.abuse_test_result.configure(text=msg, text_color=color)
-                if ok:
-                    self.abuse_status_pill.configure(
-                        text="● Ready (Verified)",
-                        text_color=C["ok"],
-                        fg_color="#DCFCE7",
-                    )
-                else:
-                    self.abuse_status_pill.configure(
-                        text="● Auth Error",
-                        text_color="#DC2626",
-                        fg_color="#FEE2E2",
-                    )
-
-            self.after(0, _update)
-
-        threading.Thread(target=_worker, daemon=True).start()
+        self._test_service_connection("abuse")
 
     def _save_settings(self) -> None:
+        def _parse_rpm(val_str: str, label: str) -> Optional[int]:
+            try:
+                val = int(val_str)
+                if 1 <= val <= 1000:
+                    return val
+            except ValueError:
+                pass
+            messagebox.showerror(
+                "Invalid Rate Limit",
+                f"{label} RPM must be a whole number between 1 and 1000.",
+            )
+            return None
+
+        vt_rpm = _parse_rpm(self.vt_rpm_var.get().strip(), "VirusTotal")
+        if vt_rpm is None:
+            return
+
+        abuse_rpm = _parse_rpm(self.abuse_rpm_var.get().strip(), "AbuseIPDB")
+        if abuse_rpm is None:
+            return
+
         vt_key = self.vt_key_var.get().strip()
         abuse_key = self.abuse_key_var.get().strip()
-
-        vt_rpm_str = self.vt_rpm_var.get().strip()
-        abuse_rpm_str = self.abuse_rpm_var.get().strip()
-
-        try:
-            vt_rpm = int(vt_rpm_str)
-            if vt_rpm < 1 or vt_rpm > 1000:
-                raise ValueError()
-        except ValueError:
-            messagebox.showerror(
-                "Invalid Rate Limit",
-                "VirusTotal RPM must be a whole number between 1 and 1000.",
-            )
-            return
-
-        try:
-            abuse_rpm = int(abuse_rpm_str)
-            if abuse_rpm < 1 or abuse_rpm > 1000:
-                raise ValueError()
-        except ValueError:
-            messagebox.showerror(
-                "Invalid Rate Limit",
-                "AbuseIPDB RPM must be a whole number between 1 and 1000.",
-            )
-            return
 
         try:
             env_file = _env_path() or (PROJECT_ROOT / ".env")

@@ -60,70 +60,68 @@ def _lookup_setting(
     return ""
 
 
-def load_settings(env_path: str | Path | None = None) -> Settings:
-    """Loads and validates VirusTotal configuration from environment variables and an env file."""
+def _load_service_settings(
+    prefix: str,
+    default_rpm: int,
+    placeholder_key: str,
+    cls: type[Any],
+    env_path: str | Path | None = None,
+) -> Any:
     file_values = _read_env_file(env_path)
+    service_name = "VirusTotal" if prefix == "VT" else "AbuseIPDB"
+    key_name = f"{prefix}_API_KEY"
+    rpm_name = f"{prefix}_REQUESTS_PER_MINUTE"
 
-    api_key = _lookup_setting("VT_API_KEY", file_values)
+    api_key = _lookup_setting(key_name, file_values)
     if not api_key:
         raise ConfigError(
-            "VT_API_KEY is not set. Copy .env.example to .env and put your VirusTotal API key in it."
+            f"{key_name} is not set. Copy .env.example to .env and put your {service_name} API key in it."
         )
-    if api_key == PLACEHOLDER_API_KEY:
+    if api_key == placeholder_key:
         raise ConfigError(
-            "VT_API_KEY still has the placeholder value. Put your real VirusTotal API key in .env."
+            f"{key_name} still has the placeholder value. Put your real {service_name} API key in .env."
         )
 
-    rpm_text = _lookup_setting("VT_REQUESTS_PER_MINUTE", file_values)
+    rpm_text = _lookup_setting(rpm_name, file_values)
     if not rpm_text:
-        rpm = DEFAULT_REQUESTS_PER_MINUTE
+        rpm = default_rpm
     else:
         try:
             rpm = int(rpm_text)
         except ValueError:
             raise ConfigError(
-                f"VT_REQUESTS_PER_MINUTE must be a whole number, got '{rpm_text}'."
+                f"{rpm_name} must be a whole number, got '{rpm_text}'."
             )
         if rpm < 1 or rpm > 1000:
             raise ConfigError(
-                "VT_REQUESTS_PER_MINUTE must be between 1 and 1000."
+                f"{rpm_name} must be between 1 and 1000."
             )
 
-    return Settings(api_key=api_key, requests_per_minute=rpm)
+    return cls(api_key=api_key, requests_per_minute=rpm)
+
+
+def load_settings(env_path: str | Path | None = None) -> Settings:
+    """Loads and validates VirusTotal configuration from environment variables and an env file."""
+    return _load_service_settings(
+        prefix="VT",
+        default_rpm=DEFAULT_REQUESTS_PER_MINUTE,
+        placeholder_key=PLACEHOLDER_API_KEY,
+        cls=Settings,
+        env_path=env_path,
+    )
 
 
 def load_abuseipdb_settings(
     env_path: str | Path | None = None,
 ) -> AbuseIPDBSettings:
     """Loads and validates AbuseIPDB configuration from environment variables and an env file."""
-    file_values = _read_env_file(env_path)
-
-    api_key = _lookup_setting("ABUSEIPDB_API_KEY", file_values)
-    if not api_key:
-        raise ConfigError(
-            "ABUSEIPDB_API_KEY is not set. Copy .env.example to .env and put your AbuseIPDB API key in it."
-        )
-    if api_key == PLACEHOLDER_ABUSEIPDB_API_KEY:
-        raise ConfigError(
-            "ABUSEIPDB_API_KEY still has the placeholder value. Put your real AbuseIPDB API key in .env."
-        )
-
-    rpm_text = _lookup_setting("ABUSEIPDB_REQUESTS_PER_MINUTE", file_values)
-    if not rpm_text:
-        rpm = DEFAULT_ABUSEIPDB_REQUESTS_PER_MINUTE
-    else:
-        try:
-            rpm = int(rpm_text)
-        except ValueError:
-            raise ConfigError(
-                f"ABUSEIPDB_REQUESTS_PER_MINUTE must be a whole number, got '{rpm_text}'."
-            )
-        if rpm < 1 or rpm > 1000:
-            raise ConfigError(
-                "ABUSEIPDB_REQUESTS_PER_MINUTE must be between 1 and 1000."
-            )
-
-    return AbuseIPDBSettings(api_key=api_key, requests_per_minute=rpm)
+    return _load_service_settings(
+        prefix="ABUSEIPDB",
+        default_rpm=DEFAULT_ABUSEIPDB_REQUESTS_PER_MINUTE,
+        placeholder_key=PLACEHOLDER_ABUSEIPDB_API_KEY,
+        cls=AbuseIPDBSettings,
+        env_path=env_path,
+    )
 
 
 def get_api_settings_raw(env_path: str | Path | None = None) -> dict[str, Any]:
@@ -228,58 +226,57 @@ def save_api_settings(
     return target_path
 
 
-def test_vt_api_connection(api_key: str, timeout: float = 8.0) -> tuple[bool, str]:
-    """Tests VirusTotal API connection with the provided key."""
+def _test_http_connection(
+    service_name: str,
+    url: str,
+    headers: dict[str, str],
+    placeholder_key: str,
+    api_key: str,
+    timeout: float = 8.0,
+) -> tuple[bool, str]:
+    """Shared HTTP connection tester for API services."""
     if any(c in api_key for c in ("\r", "\n", "\x00")):
         return False, "API key contains invalid control characters."
     key = api_key.strip()
-    if not key or key == PLACEHOLDER_API_KEY:
+    if not key or key == placeholder_key:
         return False, "API key is empty or placeholder."
     import requests
 
     try:
-        resp = requests.get(
-            "https://www.virustotal.com/api/v3/ip_addresses/8.8.8.8",
-            headers={"x-apikey": key, "accept": "application/json"},
-            timeout=timeout,
-        )
+        resp = requests.get(url, headers=headers, timeout=timeout)
         if resp.status_code == 200:
-            return True, "Connected successfully! VirusTotal key is valid."
+            return True, f"Connected successfully! {service_name} key is valid."
         elif resp.status_code in (401, 403):
             return False, f"Authentication failed (HTTP {resp.status_code}). Invalid API key."
         elif resp.status_code == 429:
             return True, "Key is valid, but rate limit or quota exceeded (HTTP 429)."
-        return False, f"VirusTotal returned HTTP {resp.status_code}."
+        return False, f"{service_name} returned HTTP {resp.status_code}."
     except requests.exceptions.Timeout:
         return False, "Connection timed out. Check network connection."
     except Exception as exc:
         return False, f"Network error ({type(exc).__name__})."
+
+
+def test_vt_api_connection(api_key: str, timeout: float = 8.0) -> tuple[bool, str]:
+    """Tests VirusTotal API connection with the provided key."""
+    return _test_http_connection(
+        service_name="VirusTotal",
+        url="https://www.virustotal.com/api/v3/ip_addresses/8.8.8.8",
+        headers={"x-apikey": api_key.strip(), "accept": "application/json"},
+        placeholder_key=PLACEHOLDER_API_KEY,
+        api_key=api_key,
+        timeout=timeout,
+    )
 
 
 def test_abuseipdb_api_connection(api_key: str, timeout: float = 8.0) -> tuple[bool, str]:
     """Tests AbuseIPDB API connection with the provided key."""
-    if any(c in api_key for c in ("\r", "\n", "\x00")):
-        return False, "API key contains invalid control characters."
-    key = api_key.strip()
-    if not key or key == PLACEHOLDER_ABUSEIPDB_API_KEY:
-        return False, "API key is empty or placeholder."
-    import requests
-
-    try:
-        resp = requests.get(
-            "https://api.abuseipdb.com/api/v2/check?ipAddress=8.8.8.8",
-            headers={"Key": key, "Accept": "application/json"},
-            timeout=timeout,
-        )
-        if resp.status_code == 200:
-            return True, "Connected successfully! AbuseIPDB key is valid."
-        elif resp.status_code in (401, 403):
-            return False, f"Authentication failed (HTTP {resp.status_code}). Invalid API key."
-        elif resp.status_code == 429:
-            return True, "Key is valid, but rate limit or quota exceeded (HTTP 429)."
-        return False, f"AbuseIPDB returned HTTP {resp.status_code}."
-    except requests.exceptions.Timeout:
-        return False, "Connection timed out. Check network connection."
-    except Exception as exc:
-        return False, f"Network error ({type(exc).__name__})."
+    return _test_http_connection(
+        service_name="AbuseIPDB",
+        url="https://api.abuseipdb.com/api/v2/check?ipAddress=8.8.8.8",
+        headers={"Key": api_key.strip(), "Accept": "application/json"},
+        placeholder_key=PLACEHOLDER_ABUSEIPDB_API_KEY,
+        api_key=api_key,
+        timeout=timeout,
+    )
 

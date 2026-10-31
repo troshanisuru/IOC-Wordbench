@@ -12,12 +12,10 @@ from __future__ import annotations
 
 import getpass
 import os
-from pathlib import Path
-import platform
 import subprocess
 import sys
 import tkinter as tk
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 import customtkinter as ctk
 
