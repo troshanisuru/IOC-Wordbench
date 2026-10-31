@@ -1084,6 +1084,9 @@ class SettingsPage(ctk.CTkFrame):
     def __init__(self, master: Any, app: "WorkbenchApp") -> None:
         super().__init__(master, fg_color=C["bg"], corner_radius=0)
         self.app = app
+        self.is_unlocked: bool = False
+        self.vt_visible: bool = False
+        self.abuse_visible: bool = False
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -1117,6 +1120,9 @@ class SettingsPage(ctk.CTkFrame):
         scroll.grid(row=1, column=0, sticky="nsew", padx=28, pady=(0, 24))
         scroll.grid_columnconfigure(0, weight=1)
 
+        # 0. Security Authorization Lock Banner
+        self._build_security_lock_bar(scroll)
+
         # 1. VirusTotal Card
         self._build_vt_card(scroll)
 
@@ -1126,7 +1132,7 @@ class SettingsPage(ctk.CTkFrame):
         # 3. Actions Card
         self._build_actions_card(scroll)
 
-    def _build_vt_card(self, parent: ctk.CTkFrame) -> None:
+    def _build_security_lock_bar(self, parent: ctk.CTkFrame) -> None:
         card = ctk.CTkFrame(
             parent,
             fg_color=C["card"],
@@ -1135,6 +1141,63 @@ class SettingsPage(ctk.CTkFrame):
             border_color=C["border"],
         )
         card.grid(row=0, column=0, sticky="ew", pady=(0, 16))
+        card.grid_columnconfigure(0, weight=1)
+
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=20, pady=16)
+
+        left = ctk.CTkFrame(row, fg_color="transparent")
+        left.pack(side="left", fill="x", expand=True)
+
+        self.lock_title_label = ctk.CTkLabel(
+            left,
+            text="🔒 API Keys Protected (Locked)",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=C["text"],
+            anchor="w",
+        )
+        self.lock_title_label.pack(anchor="w")
+
+        self.lock_subtitle_label = ctk.CTkLabel(
+            left,
+            text="User account permissions are required to view keys. Copying keys is permanently disabled.",
+            font=ctk.CTkFont(size=12),
+            text_color=C["muted"],
+            anchor="w",
+        )
+        self.lock_subtitle_label.pack(anchor="w", pady=(2, 0))
+
+        self.lock_toggle_btn = ctk.CTkButton(
+            row,
+            text="Unlock API Settings",
+            width=170,
+            height=38,
+            corner_radius=10,
+            fg_color=C["primary"],
+            hover_color=C["primary_hover"],
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self._toggle_lock,
+        )
+        self.lock_toggle_btn.pack(side="right")
+
+        self.security_notice_label = ctk.CTkLabel(
+            card,
+            text="",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#DC2626",
+            anchor="w",
+        )
+        self.security_notice_label.pack(fill="x", padx=20, pady=(0, 12))
+
+    def _build_vt_card(self, parent: ctk.CTkFrame) -> None:
+        card = ctk.CTkFrame(
+            parent,
+            fg_color=C["card"],
+            corner_radius=14,
+            border_width=1,
+            border_color=C["border"],
+        )
+        card.grid(row=1, column=0, sticky="ew", pady=(0, 16))
         card.grid_columnconfigure(0, weight=1)
 
         # Header with Logo Badge
@@ -1186,7 +1249,7 @@ class SettingsPage(ctk.CTkFrame):
         # API Key
         ctk.CTkLabel(
             fields,
-            text="API Key (VT_API_KEY)",
+            text="API Key (VT_API_KEY) — Copying Disabled",
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=C["muted"],
         ).grid(row=0, column=0, sticky="w", pady=(0, 4))
@@ -1208,6 +1271,7 @@ class SettingsPage(ctk.CTkFrame):
             placeholder_text="Enter your VirusTotal API key (64 characters)",
         )
         self.vt_key_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self._secure_key_entry(self.vt_key_entry)
 
         self.vt_show_btn = ctk.CTkButton(
             key_box,
@@ -1290,7 +1354,7 @@ class SettingsPage(ctk.CTkFrame):
             border_width=1,
             border_color=C["border"],
         )
-        card.grid(row=1, column=0, sticky="ew", pady=(0, 16))
+        card.grid(row=2, column=0, sticky="ew", pady=(0, 16))
         card.grid_columnconfigure(0, weight=1)
 
         # Header with Logo Badge
@@ -1342,7 +1406,7 @@ class SettingsPage(ctk.CTkFrame):
         # API Key
         ctk.CTkLabel(
             fields,
-            text="API Key (ABUSEIPDB_API_KEY)",
+            text="API Key (ABUSEIPDB_API_KEY) — Copying Disabled",
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=C["muted"],
         ).grid(row=0, column=0, sticky="w", pady=(0, 4))
@@ -1364,6 +1428,7 @@ class SettingsPage(ctk.CTkFrame):
             placeholder_text="Enter your AbuseIPDB API key (80 characters)",
         )
         self.abuse_key_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self._secure_key_entry(self.abuse_key_entry)
 
         self.abuse_show_btn = ctk.CTkButton(
             key_box,
@@ -1446,7 +1511,7 @@ class SettingsPage(ctk.CTkFrame):
             border_width=1,
             border_color=C["border"],
         )
-        card.grid(row=2, column=0, sticky="ew", pady=(0, 16))
+        card.grid(row=3, column=0, sticky="ew", pady=(0, 16))
         card.grid_columnconfigure(0, weight=1)
 
         row = ctk.CTkFrame(card, fg_color="transparent")
@@ -1546,22 +1611,189 @@ class SettingsPage(ctk.CTkFrame):
         self.vt_test_result.configure(text="")
         self.abuse_test_result.configure(text="")
         self.save_result_label.configure(text="")
+        if not self.is_unlocked:
+            self._set_vt_visible(False)
+            self._set_abuse_visible(False)
+
+    def _secure_key_entry(self, ctk_entry: ctk.CTkEntry) -> None:
+        """Enforces strict copy prevention on an API key entry widget."""
+        inner = ctk_entry._entry
+        try:
+            inner.configure(exportselection=False)
+        except Exception:
+            pass
+
+        def _block_copy(event: Any = None) -> str:
+            self._show_copy_blocked_notice()
+            try:
+                self.clipboard_clear()
+            except Exception:
+                pass
+            return "break"
+
+        copy_events = (
+            "<<Copy>>",
+            "<<Cut>>",
+            "<Command-c>",
+            "<Command-C>",
+            "<Control-c>",
+            "<Control-C>",
+            "<Command-x>",
+            "<Command-X>",
+            "<Control-x>",
+            "<Control-X>",
+        )
+
+        for ev in copy_events:
+            ctk_entry.bind(ev, _block_copy)
+            inner.bind(ev, _block_copy)
+
+        def _show_context_menu(event: Any) -> str:
+            menu = tk.Menu(self, tearoff=0)
+
+            def _paste() -> None:
+                try:
+                    text = self.clipboard_get()
+                    inner.insert("insert", text)
+                except Exception:
+                    pass
+
+            def _clear() -> None:
+                ctk_entry.delete(0, "end")
+
+            menu.add_command(label="Paste", command=_paste)
+            menu.add_command(label="Clear", command=_clear)
+            menu.tk_popup(event.x_root, event.y_root)
+            return "break"
+
+        for btn in ("<Button-2>", "<Button-3>"):
+            ctk_entry.bind(btn, _show_context_menu)
+            inner.bind(btn, _show_context_menu)
+
+    def _show_copy_blocked_notice(self) -> None:
+        self.security_notice_label.configure(
+            text="🔒 Copying API keys from settings is permanently disabled for security.",
+            text_color="#DC2626",
+        )
+        self.after(4000, lambda: self.security_notice_label.configure(text=""))
+
+    def _toggle_lock(self) -> None:
+        if self.is_unlocked:
+            self.lock()
+        else:
+            self._request_unlock()
+
+    def _request_unlock(self, target: Optional[str] = None) -> bool:
+        """Prompts for user account password permissions to view API keys."""
+        if self.is_unlocked:
+            if target == "vt":
+                self._set_vt_visible(True)
+            elif target == "abuse":
+                self._set_abuse_visible(True)
+            return True
+
+        from vt_ioc_checker.auth import authenticate_user_account
+
+        self.security_notice_label.configure(
+            text="Authenticating user account permissions...",
+            text_color=C["muted"],
+        )
+        self.update_idletasks()
+
+        ok, msg = authenticate_user_account(
+            prompt="IOC Workbench requires your user account password to view sensitive API keys.",
+            parent_window=self.winfo_toplevel(),
+        )
+
+        if ok:
+            self.is_unlocked = True
+            self._update_lock_ui()
+            self.security_notice_label.configure(
+                text="✓ User account authorized. API keys are now visible.",
+                text_color=C["ok"],
+            )
+            self.after(5000, lambda: self.security_notice_label.configure(text=""))
+            if target == "vt":
+                self._set_vt_visible(True)
+            elif target == "abuse":
+                self._set_abuse_visible(True)
+            else:
+                self._set_vt_visible(True)
+                self._set_abuse_visible(True)
+            return True
+        else:
+            self.is_unlocked = False
+            self._update_lock_ui()
+            self.security_notice_label.configure(
+                text=f"Authentication required: {msg}",
+                text_color="#DC2626",
+            )
+            return False
+
+    def lock(self) -> None:
+        """Re-locks the API settings, masking all keys."""
+        self.is_unlocked = False
+        self._set_vt_visible(False)
+        self._set_abuse_visible(False)
+        self._update_lock_ui()
+
+    def _set_vt_visible(self, val: bool) -> None:
+        self.vt_visible = val
+        self.vt_key_entry.configure(show="" if val else "*")
+        self.vt_show_btn.configure(text="Hide" if val else "Show")
+
+    def _set_abuse_visible(self, val: bool) -> None:
+        self.abuse_visible = val
+        self.abuse_key_entry.configure(show="" if val else "*")
+        self.abuse_show_btn.configure(text="Hide" if val else "Show")
+
+    def _update_lock_ui(self) -> None:
+        if self.is_unlocked:
+            self.lock_title_label.configure(
+                text="🔓 API Settings Unlocked",
+                text_color=C["ok"],
+            )
+            self.lock_subtitle_label.configure(
+                text="Authorized via user account credentials. (Copying keys is permanently disabled).",
+            )
+            self.lock_toggle_btn.configure(
+                text="Lock Now",
+                fg_color=C["primary_soft"],
+                hover_color="#D6E4FF",
+                text_color=C["primary"],
+            )
+        else:
+            self.lock_title_label.configure(
+                text="🔒 API Keys Protected (Locked)",
+                text_color=C["text"],
+            )
+            self.lock_subtitle_label.configure(
+                text="User account permissions are required to view keys. Copying keys is permanently disabled.",
+            )
+            self.lock_toggle_btn.configure(
+                text="Unlock API Settings",
+                fg_color=C["primary"],
+                hover_color=C["primary_hover"],
+                text_color="white",
+            )
 
     def _toggle_vt_show(self) -> None:
         if self.vt_key_entry.cget("show") == "*":
-            self.vt_key_entry.configure(show="")
-            self.vt_show_btn.configure(text="Hide")
+            if not self.is_unlocked:
+                self._request_unlock(target="vt")
+            else:
+                self._set_vt_visible(True)
         else:
-            self.vt_key_entry.configure(show="*")
-            self.vt_show_btn.configure(text="Show")
+            self._set_vt_visible(False)
 
     def _toggle_abuse_show(self) -> None:
         if self.abuse_key_entry.cget("show") == "*":
-            self.abuse_key_entry.configure(show="")
-            self.abuse_show_btn.configure(text="Hide")
+            if not self.is_unlocked:
+                self._request_unlock(target="abuse")
+            else:
+                self._set_abuse_visible(True)
         else:
-            self.abuse_key_entry.configure(show="*")
-            self.abuse_show_btn.configure(text="Show")
+            self._set_abuse_visible(False)
 
     def _test_vt_connection(self) -> None:
         key = self.vt_key_var.get().strip()
@@ -1845,6 +2077,14 @@ class WorkbenchApp(ctk.CTk):
         pass
 
     def show(self, key: str) -> None:
+        prev_key = getattr(self, "_current_page", None)
+        if prev_key == "settings" and key != "settings":
+            try:
+                self.pages["settings"].lock()
+            except Exception:
+                pass
+        self._current_page = key
+
         self.pages[key].tkraise()
         for name, btn in self.nav.items():
             btn.configure(fg_color=C["primary"] if name == key else "transparent")

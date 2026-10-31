@@ -55,7 +55,10 @@ python -m vt_ioc_checker --gui
 
 - **VirusTotal IOC Analyzer:** Bulk analyze hashes, IPs, domains, and URLs with live progress, reanalysis controls, and one-click Excel export.
 - **AbuseIPDB Bulk IP Check:** Check IP reputation scores, country, and domain with real-time counters and CSV export.
-- **API Settings & Status Tab:** Enter, view, test, and save custom VirusTotal and AbuseIPDB API keys and rate limits directly within the app without editing `.env` manually. Includes instant connection testing and live status indicators.
+- **API Settings & Security Tab:** Enter, test, and save custom VirusTotal and AbuseIPDB API keys and rate limits directly within the app without editing `.env` manually.
+  - **Account-Protected Viewing:** Sensitive API keys are masked by default (`*`). Viewing or unmasking keys requires OS user account password authorization (macOS Touch ID / system dialog, Windows/Linux credentials).
+  - **Copy Prevention:** Copying or cutting API keys from the application is permanently blocked across all shortcuts and context menus to prevent unauthorized extraction.
+  - **Automatic Session Locking:** The settings automatically re-lock whenever you navigate away from the settings tab or click "Lock Now".
 
 ## Standalone Installers & Executables (macOS, Linux, Windows)
 
